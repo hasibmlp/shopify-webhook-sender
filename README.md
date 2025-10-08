@@ -37,18 +37,15 @@ For the easiest setup, run the interactive configure command once:
 ```sh
 send-shopify-webhook configure
 ```
-This will create the global configuration file for you.
+This will create the global configuration file for you. You can also set optional `DEFAULT_SHOP` and `DEFAULT_URL` values to make the CLI even faster to use.
 
 ### 2. Execution
 
-The tool fetches a reference payload and sends a new webhook shaped like that reference.
+The tool fetches a reference payload and sends a new webhook shaped like that reference. If default values are configured, you can omit the `--shop` and `--url` flags.
 
 ```sh
-# Send an orders/fulfilled webhook (default topic)
-send-shopify-webhook \
-  --order-id 1234567890 \
-  --shop your-shop.myshopify.com \
-  --url "https://your-receiver.com/webhook"
+# Send an orders/fulfilled webhook using configured defaults
+send-shopify-webhook --order-id 1234567890
 
 # Send a fulfillments/create webhook
 send-shopify-webhook \
@@ -61,7 +58,7 @@ send-shopify-webhook \
 
 ### 3. CLI Options
 
-- `--url`, `--shop`: (Required)
+- `--url`, `--shop`: (Required, unless a default is configured)
 - `--topic`: (Optional) The webhook topic to send. Defaults to `orders/fulfilled`.
 - `--order-id`: Required for `orders/*` and `fulfillments/*` topics.
 - `--fulfillment-id`: Required for `fulfillments/*` topics.

@@ -6,10 +6,75 @@ import path from 'node:path';
 import * as dotenv from 'dotenv';
 import prompts from 'prompts';
 import minimist from "minimist";
+import chalk from 'chalk';
+import boxen from 'boxen';
 import { fetchOrder, fetchFulfillment } from "./shopify.js";
 import { projectToShape } from "./shape.js";
 import { sendWebhook } from "./sender.js";
 import { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
+import { logger } from './logger.js';
+
+const SUPPORTED_TOPICS = [
+  { title: 'orders/fulfilled', value: 'orders/fulfilled' },
+  { title: 'fulfillments/create', value: 'fulfillments/create' },
+];
+
+async function promptAndSaveDefaults(missing: { shop: boolean, url: boolean }): Promise<{ shop?: string; url?: string; didSave: boolean }> {
+  const onCancel = () => {
+    logger.plain("\nCancelled.");
+    process.exit(0);
+  };
+
+  const questions: prompts.PromptObject[] = [];
+  if (missing.shop) {
+    questions.push({ type: 'text', name: 'shop', message: 'Please provide the shop domain' });
+  }
+  if (missing.url) {
+    questions.push({ type: 'text', name: 'url', message: 'Please provide the destination URL' });
+  }
+
+  const answers = await prompts(questions, { onCancel });
+
+  if ((missing.shop && !answers.shop) || (missing.url && !answers.url)) {
+    logger.error("Shop and URL are required to proceed. Aborting.");
+    process.exit(1);
+  }
+
+  // Sanitize the inputs before they are used or saved
+  if (answers.shop) answers.shop = answers.shop.trim().replace(/["']/g, '');
+  if (answers.url) answers.url = answers.url.trim().replace(/["']/g, '').replace(/\\/g, '');
+
+  const saveConfirmation = await prompts({
+    type: 'confirm',
+    name: 'save',
+    message: 'Save this shop and URL as defaults for future use?',
+    initial: true
+  }, { onCancel });
+
+  if (saveConfirmation.save) {
+    const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
+    const globalPath = path.join(globalDir, '.env');
+    const existingConfig = fs.existsSync(globalPath) ? dotenv.parse(fs.readFileSync(globalPath)) : {};
+
+    const newConfig = {
+      ...existingConfig,
+      ...(answers.shop && { DEFAULT_SHOP: answers.shop }),
+      ...(answers.url && { DEFAULT_URL: answers.url }),
+    };
+
+    const content = Object.entries(newConfig)
+      .map(([key, value]) => `${key}="${value}"`)
+      .join('\n') + '\n';
+
+    if (!fs.existsSync(globalDir)) {
+      fs.mkdirSync(globalDir, { recursive: true });
+    }
+    fs.writeFileSync(globalPath, content);
+    logger.info(`Defaults saved to ${globalPath}\n`);
+  }
+
+  return { ...answers, didSave: saveConfirmation.save };
+}
 
 const DEFAULT_REFERENCE_URL_TEMPLATE = "https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/main/references/{TOPIC}.json";
 
@@ -27,9 +92,9 @@ async function getReferencePayload(url: string | undefined, topic: string) {
   }
 }
 
-async function promptForMissingFlags(argv: minimist.ParsedArgs) {
+async function promptForMissingFlags(argv: minimist.ParsedArgs, env: NodeJS.ProcessEnv) {
   const onCancel = () => {
-    console.log("\nCancelled.");
+    logger.plain("\nCancelled.");
     process.exit(0);
   };
 
@@ -41,10 +106,7 @@ async function promptForMissingFlags(argv: minimist.ParsedArgs) {
       type: 'select',
       name: 'topic',
       message: 'Select a webhook topic',
-      choices: [
-        { title: 'orders/fulfilled', value: 'orders/fulfilled' },
-        { title: 'fulfillments/create', value: 'fulfillments/create' },
-      ],
+      choices: SUPPORTED_TOPICS,
       initial: 0,
     }, { onCancel });
     topic = topicAnswer.topic;
@@ -52,14 +114,14 @@ async function promptForMissingFlags(argv: minimist.ParsedArgs) {
 
   // 2. Build the rest of the questions based on the topic
   const questions: prompts.PromptObject[] = [];
-  const addQuestion = (name: string, message: string) => {
-    if (!argv[name]) {
+  const addQuestion = (name: string, message: string, envVar?: string) => {
+    if (!argv[name] && (!envVar || !env[envVar])) {
       questions.push({ type: 'text', name, message: `Please provide ${message}` });
     }
   };
 
-  addQuestion('shop', 'the shop domain');
-  addQuestion('url', 'the destination URL');
+  addQuestion('shop', 'the shop domain', 'DEFAULT_SHOP');
+  addQuestion('url', 'the destination URL', 'DEFAULT_URL');
 
   if (topic.startsWith('orders/')) {
     addQuestion('order-id', 'the Order ID');
@@ -95,10 +157,10 @@ function getShopifyEnv() {
 }
 
 async function runConfigureCommand() {
-  console.log("Configuring Shopify Webhook Sender (global settings)");
+  logger.info("Configuring Shopify Webhook Sender (global settings)");
   
   const onCancel = () => {
-    console.log("\nCancelled.");
+    logger.plain("\nCancelled.");
     process.exit(0);
   };
 
@@ -112,34 +174,72 @@ async function runConfigureCommand() {
       type: 'password',
       name: 'webhookSecret',
       message: 'Please enter your SHOPIFY_WEBHOOK_SECRET:'
+    },
+    {
+      type: 'text',
+      name: 'defaultShop',
+      message: 'Enter a default shop domain (optional):'
+    },
+    {
+      type: 'text',
+      name: 'defaultUrl',
+      message: 'Enter a default destination URL (optional):'
     }
   ], { onCancel });
 
-  const { adminToken, webhookSecret } = response;
+  const { adminToken, webhookSecret, defaultShop, defaultUrl } = response;
   
   if (!adminToken || !webhookSecret) {
-    console.error("\n❌ Both token and secret are required. Configuration cancelled.");
+    logger.error("\nBoth token and secret are required. Configuration cancelled.");
     return;
   }
 
   const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
   const globalPath = path.join(globalDir, '.env');
-  const content = `SHOPIFY_ADMIN_TOKEN="${adminToken}"\nSHOPIFY_WEBHOOK_SECRET="${webhookSecret}"\n`;
+
+  const existingConfig = fs.existsSync(globalPath) ? dotenv.parse(fs.readFileSync(globalPath)) : {};
+  const newConfig = { ...existingConfig };
+
+  // Always update credentials
+  newConfig.SHOPIFY_ADMIN_TOKEN = adminToken;
+  newConfig.SHOPIFY_WEBHOOK_SECRET = webhookSecret;
+
+  // Handle optional defaults - allows unsetting with an empty string
+  if (defaultShop) {
+    newConfig.DEFAULT_SHOP = defaultShop;
+  } else if (defaultShop === '') {
+    delete newConfig.DEFAULT_SHOP;
+  }
+
+  if (defaultUrl) {
+    newConfig.DEFAULT_URL = defaultUrl;
+  } else if (defaultUrl === '') {
+    delete newConfig.DEFAULT_URL;
+  }
+
+  const content = Object.entries(newConfig)
+    .map(([key, value]) => `${key}="${value}"`)
+    .join('\n') + '\n';
 
   try {
     if (!fs.existsSync(globalDir)) {
       fs.mkdirSync(globalDir, { recursive: true });
     }
     fs.writeFileSync(globalPath, content);
-    console.log(`\n✅ Global configuration saved successfully to ${globalPath}`);
+    logger.success(`\nGlobal configuration saved successfully to ${globalPath}`);
   } catch (e: any) {
-    console.error(`\n❌ Failed to write configuration file: ${e.message}`);
+    logger.error(`\nFailed to write configuration file: ${e.message}`);
   }
 }
 
 
 async function main() {
   const argv = minimist(process.argv.slice(2));
+
+  // Sanitize URL input at the source to handle shell escaping
+  if (argv.url && typeof argv.url === 'string') {
+    argv.url = argv.url.replace(/\\/g, '');
+  }
 
   if (argv._[0] === 'configure') {
     await runConfigureCommand();
@@ -158,6 +258,8 @@ async function main() {
   const dryRun = argv["dry-run"] || false;
   const eventId = argv["event-id"];
   const nonInteractive = argv["non-interactive"] || false;
+  let wasInteractive = false;
+  let defaultsWereSaved = false;
 
   // --- Env & Basic Validation ---
   const env = getShopifyEnv();
@@ -166,38 +268,110 @@ async function main() {
 
   if (nonInteractive) {
     if (!url || !shop) {
-      console.error("Error: --url and --shop are required in non-interactive mode.");
+      logger.error("Error: --url and --shop are required in non-interactive mode.");
       process.exit(1);
     }
     if (topic.startsWith('orders/') && !orderId) {
-      console.error(`Error: --order-id is required for topic '${topic}' in non-interactive mode.`);
+      logger.error(`Error: --order-id is required for topic '${topic}' in non-interactive mode.`);
       process.exit(1);
     }
     if (topic.startsWith('fulfillments/') && (!orderId || !fulfillmentId)) {
-      console.error(`Error: --order-id and --fulfillment-id are required for topic '${topic}' in non-interactive mode.`);
+      logger.error(`Error: --order-id and --fulfillment-id are required for topic '${topic}' in non-interactive mode.`);
       process.exit(1);
     }
-  } else {
-    const combinedArgs = await promptForMissingFlags(argv) as minimist.ParsedArgs;
-    // Re-assign vars after they've been potentially filled by prompts
-    shop = combinedArgs.shop;
-    url = combinedArgs.url;
-    orderId = combinedArgs['order-id'];
-    fulfillmentId = combinedArgs['fulfillment-id'];
+  } else if (Object.keys(argv).length <= 2 && argv._.length === 0) { // Check for empty or just '_' and '$0'
+    const combinedArgs = await promptForMissingFlags(argv, env) as minimist.ParsedArgs;
+    // Re-assign vars and sanitize them
+    shop = (combinedArgs.shop || env.DEFAULT_SHOP || '').trim().replace(/["']/g, '');
+    url = (combinedArgs.url || env.DEFAULT_URL || '').trim().replace(/["']/g, '');
+    orderId = String(combinedArgs['order-id'] || '').trim();
+    fulfillmentId = String(combinedArgs['fulfillment-id'] || '').trim();
     topic = combinedArgs.topic;
+    wasInteractive = true;
+  } else {
+    // If flags are passed, still respect the defaults from env if a flag is omitted
+    const rawShop = shop ? String(shop) : (env.DEFAULT_SHOP || '');
+    shop = rawShop.trim().replace(/["']/g, '');
+
+    const rawUrl = url ? String(url) : (env.DEFAULT_URL || '');
+    url = rawUrl.trim().replace(/["']/g, '');
+  }
+
+  if (!url || !shop) {
+    const newValues = await promptAndSaveDefaults({ shop: !shop, url: !url });
+    if (!shop && newValues.shop) shop = newValues.shop;
+    if (!url && newValues.url) url = newValues.url;
+    wasInteractive = true;
+    defaultsWereSaved = newValues.didSave;
   }
 
   if (!adminToken || !webhookSecret) {
-    console.error(`Error: Shopify credentials not found.
-
-To set them up for global use, please run:
-  send-shopify-webhook configure`);
+    logger.error(`Error: Shopify credentials not found.\n\nTo set them up for global use, please run:\n  send-shopify-webhook configure`);
     process.exit(1);
   }
 
   try {
     const entityId = orderId || fulfillmentId;
-    console.log(`--- Sending new '${topic}' webhook for ID ${entityId} ---`);
+
+    if (wasInteractive) {
+      const commandParts = [
+        'send-shopify-webhook',
+        `--topic "${topic}"`,
+      ];
+
+      if (!defaultsWereSaved) {
+        commandParts.push(`--shop "${shop}"`);
+        commandParts.push(`--url "${url}"`);
+      }
+
+      if (orderId) commandParts.push(`--order-id ${orderId}`);
+      if (fulfillmentId) commandParts.push(`--fulfillment-id ${fulfillmentId}`);
+      if (eventId) commandParts.push(`--event-id "${eventId}"`);
+
+      const optionalParts = [
+        'Optional flags:',
+      ];
+
+      if (defaultsWereSaved) {
+        optionalParts.push(`--shop "your-shop.myshopify.com"`);
+        optionalParts.push(`--url "https://your-receiver.com/webhook"`);
+      }
+
+      optionalParts.push(
+        '--event-id "your-custom-id"',
+        '--api-version "2025-07"',
+        '--strict-schema',
+        '--non-interactive'
+      );
+
+      const topicsList = [
+        'Available topics:',
+        ...SUPPORTED_TOPICS.map(topic => `  ${topic.value}`)
+      ];
+
+      const command = commandParts.join(' \\\n  ');
+
+      logger.plain(`\nTo run this command again non-interactively, use:\n`);
+      logger.plain(chalk.cyan(`  ${command}`));
+
+      const infoLines = [
+        ...optionalParts,
+        '',
+        ...topicsList
+      ];
+
+      const infoBox = boxen(infoLines.join('\n'), {
+        title: 'Command Details',
+        titleAlignment: 'center',
+        padding: 1,
+        margin: { top: 1, bottom: 1, left: 2 },
+        borderColor: 'gray',
+        borderStyle: 'round'
+      });
+      logger.plain(chalk.gray(infoBox));
+    }
+
+    logger.info(`Sending new '${topic}' webhook for ID ${entityId} ...`);
     
     const reference = await getReferencePayload(referenceUrl, topic);
     let liveData;
@@ -233,22 +407,23 @@ To set them up for global use, please run:
     });
 
     if (!dryRun) {
-      const commandParts = ['send-shopify-webhook'];
-      if (topic) commandParts.push(`--topic "${topic}"`);
-      if (shop) commandParts.push(`--shop "${shop}"`);
-      if (url) commandParts.push(`--url "${url}"`);
-      if (orderId) commandParts.push(`--order-id ${orderId}`);
-      if (fulfillmentId) commandParts.push(`--fulfillment-id ${fulfillmentId}`);
-      if (eventId) commandParts.push(`--event-id "${eventId}"`);
-      
-      const command = commandParts.join(' \\\n  ');
-
-      console.log("\nTo run this command again non-interactively, use:");
-      console.log(command, "\n");
-      console.log(`✅ Sent ${topic} for ID ${entityId} to ${url} (status 200). EventId=${sentEventId}`);
+      logger.success(`✅ Success!`);
+      logger.break();
+      logger.details('Topic:', topic);
+      logger.details('Shop:', shop);
+      logger.details('Destination:', url);
+      logger.details('Event ID:', sentEventId);
     }
   } catch (error: any) {
-    console.error("Error:", error.message);
+    logger.error(`❌ Error!`);
+    logger.break();
+    logger.details('Topic:', topic);
+    if (shop) logger.details('Shop:', shop);
+    if (url) logger.details('Destination:', url);
+    const entityId = orderId || fulfillmentId;
+    if (entityId) logger.details('ID:', String(entityId));
+    logger.break();
+    logger.details('Details:', error.message);
     process.exit(1);
   }
 }
