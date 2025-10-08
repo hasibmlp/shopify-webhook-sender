@@ -7,7 +7,6 @@ import * as dotenv from 'dotenv';
 import prompts from 'prompts';
 import minimist from "minimist";
 import chalk from 'chalk';
-import boxen from 'boxen';
 import updateNotifier from 'update-notifier';
 import { createRequire } from 'module';
 import { fetchOrder, fetchFulfillment, fetchOrderEdit } from "./shopify.js";
