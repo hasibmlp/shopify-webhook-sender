@@ -33,12 +33,12 @@ export async function sendWebhook(opts: {
     console.log(
       body.length > 1500 ? body.slice(0, 1500) + " …(truncated)" : body
     );
-    return { headers, eventId, webhookId };
+    return { headers, eventId, webhookId, status: 200 };
   }
 
   const res = await fetch(url, { method: "POST", headers, body });
   if (!res.ok) {
     throw new Error(`POST failed: ${res.status} ${await res.text()}`);
   }
-  return { headers, eventId, webhookId };
+  return { headers, eventId, webhookId, status: res.status };
 }

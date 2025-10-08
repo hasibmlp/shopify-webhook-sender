@@ -9,7 +9,7 @@ import minimist from "minimist";
 import chalk from 'chalk';
 import updateNotifier from 'update-notifier';
 import { createRequire } from 'module';
-import { fetchOrder, fetchFulfillment, fetchOrderEdit } from "./shopify.js";
+import { fetchOrder, fetchFulfillment } from "./shopify.js";
 import { projectToShape } from "./shape.js";
 import { sendWebhook } from "./sender.js";
 import { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
@@ -17,7 +17,6 @@ import { logger } from './logger.js';
 
 const SUPPORTED_TOPICS = [
   { title: 'orders/fulfilled', value: 'orders/fulfilled' },
-  { title: 'orders/edited', value: 'orders/edited' },
   { title: 'fulfillments/create', value: 'fulfillments/create' },
 ];
 
@@ -380,9 +379,7 @@ async function main() {
     const reference = await getReferencePayload(referenceUrl, topic);
     let liveData;
 
-    if (topic === 'orders/edited') {
-      liveData = await fetchOrderEdit(orderId, shop, adminToken, apiVersion);
-    } else if (topic.startsWith('orders/')) {
+    if (topic.startsWith('orders/')) {
       liveData = await fetchOrder(orderId, shop, adminToken, apiVersion);
     } else if (topic.startsWith('fulfillments/')) {
       liveData = await fetchFulfillment(orderId, fulfillmentId, shop, adminToken, apiVersion);
@@ -391,7 +388,7 @@ async function main() {
     }
 
     // GraphQL enrichment only for orders for now
-    if (topic.startsWith('orders/') && topic !== 'orders/edited' && reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
+    if (topic.startsWith('orders/') && reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
       const gqlBag = await fetchCurrentShippingPriceSet(orderId, shop, adminToken, apiVersion).catch(() => null);
       const fallback = liveData.total_shipping_price_set ?? null;
       liveData = { ...liveData, current_shipping_price_set: gqlBag ?? fallback ?? null };
@@ -401,7 +398,7 @@ async function main() {
     const body = JSON.stringify(projected, null, 2);
 
     // --- Send Webhook ---
-    const { eventId: sentEventId } = await sendWebhook({
+    const { eventId: sentEventId, status } = await sendWebhook({
       url,
       topic,
       shop,
@@ -418,6 +415,7 @@ async function main() {
       logger.details('Topic:', topic);
       logger.details('Shop:', shop);
       logger.details('Destination:', url);
+      logger.details('Status:', String(status));
       logger.details('Event ID:', sentEventId);
     }
   } catch (error: any) {
@@ -428,6 +426,13 @@ async function main() {
     if (url) logger.details('Destination:', url);
     const entityId = orderId || fulfillmentId;
     if (entityId) logger.details('ID:', String(entityId));
+
+    // Extract status code from the error message if possible
+    const statusMatch = error.message.match(/\b(\d{3})\b/);
+    if (statusMatch) {
+      logger.details('Status:', statusMatch[1]);
+    }
+
     logger.break();
     logger.details('Details:', error.message);
     process.exit(1);
