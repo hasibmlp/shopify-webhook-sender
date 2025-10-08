@@ -9,11 +9,12 @@ export async function sendWebhook(opts: {
   secret: string;
   body: string; // projected JSON string
   dryRun?: boolean;
+  eventId?: string;
 }) {
-  const { url, topic, shop, apiVersion, secret, body, dryRun } = opts;
+  const { url, topic, shop, apiVersion, secret, body, dryRun, eventId: customEventId } = opts;
 
   const hmac = hmacBase64(secret, body);
-  const eventId = crypto.randomUUID();
+  const eventId = customEventId || crypto.randomUUID();
   const webhookId = crypto.randomUUID();
 
   const headers = {

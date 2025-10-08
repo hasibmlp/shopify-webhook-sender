@@ -22,12 +22,13 @@ export async function fetchOrder(
 }
 
 export async function fetchFulfillment(
+  orderId: string | number,
   fulfillmentId: string | number,
   shop: string,
   adminToken: string,
   apiVersion: string
 ) {
-  const url = `https://${shop}/admin/api/${apiVersion}/fulfillments/${fulfillmentId}.json`;
+  const url = `https://${shop}/admin/api/${apiVersion}/orders/${orderId}/fulfillments/${fulfillmentId}.json`;
   const res = await fetch(url, {
     headers: {
       "X-Shopify-Access-Token": adminToken,
