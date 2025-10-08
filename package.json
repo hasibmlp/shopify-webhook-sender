@@ -1,7 +1,7 @@
 {
   "name": "shopify-webhook-sender",
-  "version": "1.0.2",
-  "description": "Sends a Shopify webhook for a specific ID, using live data fetched from the Shopify Admin API, but shaped exactly like a reference JSON file.",
+  "version": "1.0.3",
+  "description": "Sends or resends Shopify webhooks using live or historical data, with precise payload shaping.",
   "author": "Abdulla Haseeb",
   "license": "MIT",
   "repository": {
@@ -31,12 +31,12 @@
     "@types/deep-diff": "^1.0.5",
     "@types/minimist": "^1.2.5",
     "@types/node": "^22.0.0",
-    "minimist": "^1.2.8",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   },
   "dependencies": {
     "deep-diff": "^1.0.2",
-    "dotenv": "^17.2.3"
+    "dotenv": "^17.2.3",
+    "minimist": "^1.2.8"
   }
 }
