@@ -1,0 +1,28 @@
+{
+  "name": "shopify-fulfilled-replay",
+  "version": "1.0.0",
+  "description": "Replays a Shopify orders/fulfilled webhook for a specific Order ID, using live data fetched from the Shopify Admin API, but shaped exactly like a reference JSON file.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "replay-shopify-webhook": "dist/cli.js"
+  },
+  "scripts": {
+    "send": "tsx src/cli.ts",
+    "diff": "tsx src/diff.ts",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@types/deep-diff": "^1.0.5",
+    "@types/minimist": "^1.2.5",
+    "@types/node": "^22.0.0",
+    "minimist": "^1.2.8",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  },
+  "dependencies": {
+    "deep-diff": "^1.0.2",
+    "dotenv": "^17.2.3"
+  }
+}
