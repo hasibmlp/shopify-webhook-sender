@@ -66,7 +66,7 @@ async function main() {
   }
 
   try {
-    const exampleJsonPath = path.resolve(process.cwd(), "example.json");
+    const exampleJsonPath = path.resolve(process.cwd(), "reference.json");
     const reference = JSON.parse(await fs.readFile(exampleJsonPath, "utf-8"));
 
     const rawOrder = await fetchOrder(orderId, shop, adminToken, apiVersion);
