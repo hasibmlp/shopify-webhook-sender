@@ -241,6 +241,11 @@ async function main() {
 
   const argv = minimist(process.argv.slice(2));
 
+  // If the first arg is 'send', slice it off to normalize behavior
+  if (argv._[0] === 'send') {
+    argv._.shift();
+  }
+
   if (argv.version || argv.v) {
     console.log(pkg.version);
     return;
