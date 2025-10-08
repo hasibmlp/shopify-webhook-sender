@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 import "dotenv/config";
-import fs from "node:fs/promises";
-import path from "node:path";
+import os from 'node:os';
+import fs from 'node:fs';
+import path from 'node:path';
+import * as dotenv from 'dotenv';
+import readline from 'node:readline/promises';
 import minimist from "minimist";
 import { fetchOrder } from "./shopify.js";
 import { projectToShape } from "./shape.js";
 import { sendWebhook } from "./sender.js";
 import { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
 
-const DEFAULT_REFERENCE_URL = "https://raw.githubusercontent.com/hsbAbdulla/shopify-webhook-sender/main/generic-reference.json";
+const DEFAULT_REFERENCE_URL = "https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/main/generic-reference.json";
 
 async function getReferencePayload(url?: string) {
   const finalUrl = url || DEFAULT_REFERENCE_URL;
@@ -29,9 +32,60 @@ async function getReferencePayload(url?: string) {
   }
 }
 
+function getShopifyEnv() {
+  // 1. Local .env file
+  const localPath = path.resolve(process.cwd(), '.env');
+  const localConfig = fs.existsSync(localPath) ? dotenv.parse(fs.readFileSync(localPath)) : {};
+
+  // 2. Global config file
+  const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
+  const globalPath = path.join(globalDir, '.env');
+  const globalConfig = fs.existsSync(globalPath) ? dotenv.parse(fs.readFileSync(globalPath)) : {};
+
+  // 3. Environment variables (process.env)
+  // Merge them in order of priority: local > global > process.env
+  return { ...process.env, ...globalConfig, ...localConfig };
+}
+
+async function runConfigureCommand() {
+  console.log("Configuring Shopify Webhook Sender (global settings)");
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  const adminToken = await rl.question('? Please enter your SHOPIFY_ADMIN_TOKEN (shpat_...): ');
+  const webhookSecret = await rl.question('? Please enter your SHOPIFY_WEBHOOK_SECRET: ');
+  rl.close();
+
+  if (!adminToken || !webhookSecret) {
+    console.error("\n❌ Both token and secret are required. Configuration cancelled.");
+    return;
+  }
+
+  const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
+  const globalPath = path.join(globalDir, '.env');
+  const content = `SHOPIFY_ADMIN_TOKEN="${adminToken}"\nSHOPIFY_WEBHOOK_SECRET="${webhookSecret}"\n`;
+
+  try {
+    if (!fs.existsSync(globalDir)) {
+      fs.mkdirSync(globalDir, { recursive: true });
+    }
+    fs.writeFileSync(globalPath, content);
+    console.log(`\n✅ Global configuration saved successfully to ${globalPath}`);
+  } catch (e: any) {
+    console.error(`\n❌ Failed to write configuration file: ${e.message}`);
+  }
+}
+
 
 async function main() {
   const argv = minimist(process.argv.slice(2));
+
+  if (argv._[0] === 'configure') {
+    await runConfigureCommand();
+    return;
+  }
 
   // --- Flag Parsing ---
   const orderId = argv["order-id"];
@@ -44,8 +98,9 @@ async function main() {
   const dryRun = argv["dry-run"] || false;
 
   // --- Env & Basic Validation ---
-  const adminToken = process.env.SHOPIFY_ADMIN_TOKEN;
-  const webhookSecret = process.env.SHOPIFY_WEBHOOK_SECRET;
+  const env = getShopifyEnv();
+  const adminToken = env.SHOPIFY_ADMIN_TOKEN;
+  const webhookSecret = env.SHOPIFY_WEBHOOK_SECRET;
 
   if (!orderId || !url || !shop) {
     console.error("Missing required flags: --order-id, --url, --shop");
@@ -53,7 +108,10 @@ async function main() {
   }
 
   if (!adminToken || !webhookSecret) {
-    console.error("Missing required environment variables: SHOPIFY_ADMIN_TOKEN, SHOPIFY_WEBHOOK_SECRET");
+    console.error(`Error: Shopify credentials not found.
+
+To set them up for global use, please run:
+  send-shopify-webhook configure`);
     process.exit(1);
   }
 

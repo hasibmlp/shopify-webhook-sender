@@ -25,57 +25,23 @@ pnpm add shopify-webhook-sender
 
 ### 1. Setup
 
-Before running, create a `.env` file with your Shopify credentials (`SHOPIFY_ADMIN_TOKEN`, `SHOPIFY_WEBHOOK_SECRET`). An `.env.example` is provided.
+The tool needs your Shopify Admin API Token and Webhook Secret. It looks for these credentials in the following order:
+
+1.  A local `.env` file in the directory you are running the command from.
+2.  A global configuration file located at `~/.config/shopify-webhook-sender/.env`.
+3.  Shell environment variables (`SHOPIFY_ADMIN_TOKEN`, `SHOPIFY_WEBHOOK_SECRET`).
+
+For global use, creating the global config file is recommended. The tool will provide the exact path on first run if it can't find credentials.
+
+You can set up the global configuration interactively by running:
+```sh
+send-shopify-webhook configure
+```
+
+An `.env.example` file is provided in this repository to show the required format.
 
 ### 2. Execution
 
 The tool fetches a reference payload from a URL and then sends a new webhook shaped like that reference.
 
-```sh
-# It will automatically use a generic reference payload from GitHub
-send-shopify-webhook \
-  --order-id <ORDER_ID> \
-  --url "..." --shop "..."
-
-# Or, you can provide your own reference payload URL
-send-shopify-webhook \
-  --order-id <ORDER_ID> \
-  --reference-url <URL_TO_YOUR_JSON> \
-  --url "..." --shop "..."
 ```
-
-### 3. CLI Options
-
-- `--order-id`: (Required) The numeric Shopify order ID.
-- `--url`: (Required) The webhook receiver endpoint.
-- `--shop`: (Required) The shop domain (e.g., `your-shop.myself.com`).
-- `--reference-url`: (Optional) A URL to a custom JSON payload to use for shaping. Defaults to a generic payload on GitHub.
-- `--topic`: The webhook topic (default: `orders/fulfilled`).
-- `--api-version`: The Shopify API version (default: `2025-10`).
-- `--strict-schema`: Throws an error if any key in the reference is missing from the fetched order.
-- `--dry-run`: Prints the payload and headers to the console without sending the request.
-
-
-## Usage as a Library
-
-```typescript
-import { sendCraftedWebhook } from 'shopify-webhook-sender';
-
-// You must provide your own reference payload object when using the library
-const referencePayload = await fetch("https://.../your-reference.json").then(res => res.json());
-
-await sendCraftedWebhook({
-  orderId: '<NEW_ORDER_ID>',
-  reference: referencePayload,
-  // ... other required options like shop, adminToken, etc.
-});
-```
-## Local Development
-
-If you wish to contribute to or modify this tool:
-
-1.  Clone the repository.
-2.  Install dependencies: `pnpm install`.
-3.  Run the CLI directly: `pnpm send ...` or `tsx src/cli.ts ...`.
-4.  A `diff` script is available for testing: `pnpm diff file1.json file2.json`.
-
