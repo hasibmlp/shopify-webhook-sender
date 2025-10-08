@@ -1,13 +1,13 @@
-# Shopify Webhook Replay Toolkit
+# Shopify Webhook Sender
 
-A versatile CLI and library to replay Shopify webhooks using live order data, shaped precisely against a reference payload.
+A versatile CLI and library to send Shopify webhooks using live order data, shaped precisely against a reference payload.
 
 ## Features
 
-- **High-Fidelity Replay**: Fetches live order data from the Shopify Admin REST API.
+- **High-Fidelity Sending**: Fetches live data from the Shopify Admin REST API.
 - **Precise Shaping**: Deeply projects the live data onto the exact structure of a reference `example.json` file.
 - **GraphQL Enrichment**: Intelligently enriches the data by fetching `current_shipping_price_set` via the GraphQL API if required by the reference file, ensuring maximum accuracy.
-- **Secure Signing**: Correctly computes the `X-Shopify-Hmac-Sha256` signature for the replayed webhook.
+- **Secure Signing**: Correctly computes the `X-Shopify-Hmac-Sha26` signature for the sent webhook.
 - **Flexible Usage**: Can be used as a standalone CLI or imported as a library into other Node.js projects.
 
 ## Usage as a CLI
@@ -32,7 +32,7 @@ You can run the tool directly within the project or install it globally to use a
 # Install dependencies
 pnpm install
 
-# Run the replay
+# Run the sender
 pnpm send \
   --order-id 1234567890 \
   --shop your-shop.myshopify.com \
@@ -47,7 +47,7 @@ pnpm link --global
 
 # Now you can run it from any directory that contains
 # an example.json and a .env file.
-replay-shopify-webhook \
+send-shopify-webhook \
   --order-id 1234567890 \
   --shop your-shop.myshopify.com \
   --url "https://your-receiver.com/webhook"
@@ -71,22 +71,22 @@ This project can be used as a package in other Node.js applications.
 
 ```sh
 # Install from a local path
-pnpm add /path/to/shopify-webhook-order-fulfilled-sender
+pnpm add /path/to/shopify-webhook-sender
 
 # Or, if published to npm
-# pnpm add shopify-webhook-replay
+# pnpm add shopify-webhook-sender
 ```
 
 ### 2. Programmatic Usage
 
 ```typescript
-import { replayWebhook } from 'shopify-webhook-replay';
+import { sendCraftedWebhook } from 'shopify-webhook-sender';
 import * as fs from 'fs/promises';
 
 async function myCustomLogic() {
   const referencePayload = JSON.parse(await fs.readFile('path/to/reference.json', 'utf8'));
 
-  const result = await replayWebhook({
+  const result = await sendCraftedWebhook({
     orderId: '1234567890',
     shop: process.env.SHOPIFY_SHOP_DOMAIN,
     adminToken: process.env.SHOPIFY_ADMIN_TOKEN,
@@ -95,7 +95,7 @@ async function myCustomLogic() {
     reference: referencePayload,
   });
 
-  console.log(`Replay successful! EventId: ${result.eventId}`);
+  console.log(`Sending successful! EventId: ${result.eventId}`);
 }
 ```
 

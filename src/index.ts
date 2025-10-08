@@ -13,7 +13,7 @@ import { sendWebhook } from "./sender.js";
  * The main programmatic entrypoint for the Shopify Webhook Replay tool.
  * This function orchestrates the entire process of fetching, shaping, and sending a webhook.
  */
-export async function replayWebhook(opts: {
+export async function sendCraftedWebhook(opts: {
   orderId: string | number;
   shop: string;
   adminToken: string;

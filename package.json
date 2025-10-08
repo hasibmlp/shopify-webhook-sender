@@ -1,12 +1,26 @@
 {
-  "name": "shopify-fulfilled-replay",
+  "name": "shopify-webhook-sender",
   "version": "1.0.0",
-  "description": "Replays a Shopify orders/fulfilled webhook for a specific Order ID, using live data fetched from the Shopify Admin API, but shaped exactly like a reference JSON file.",
+  "description": "Sends a Shopify webhook for a specific ID, using live data fetched from the Shopify Admin API, but shaped exactly like a reference JSON file.",
+  "author": "Abdulla Haseeb",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hasibmlp/shopify-webhook-sender.git"
+  },
+  "keywords": [
+    "shopify",
+    "webhook",
+    "sender",
+    "replay",
+    "api",
+    "typescript"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "replay-shopify-webhook": "dist/cli.js"
+    "send-shopify-webhook": "dist/cli.js"
   },
   "scripts": {
     "send": "tsx src/cli.ts",
