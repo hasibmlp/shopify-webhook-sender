@@ -1,14 +1,15 @@
 # Shopify Webhook Sender
 
-A versatile CLI and library to send Shopify webhooks using live order data, shaped precisely against a reference payload.
+A versatile CLI and library to send Shopify webhooks using live order data, shaped precisely against a remote reference payload.
 
 ## Features
 
 - **High-Fidelity Sending**: Fetches live data from the Shopify Admin REST API.
-- **Precise Shaping**: Deeply projects the live data onto the exact structure of a reference `example.json` file.
+- **Precise Shaping**: Deeply projects the live data onto the exact structure of a reference payload fetched from a URL.
 - **GraphQL Enrichment**: Intelligently enriches the data by fetching `current_shipping_price_set` via the GraphQL API if required by the reference file.
 - **Secure Signing**: Correctly computes the `X-Shopify-Hmac-Sha256` signature.
-- **Flexible Usage**: Use it as a global CLI or import it as a library into other Node.js projects.
+- **Dual Use**: Can be used as a global CLI or imported as a library into other Node.js projects.
+- **Fully Automatic**: Works out-of-the-box by using a default, generic payload shape hosted on GitHub. No local configuration needed.
 
 ## Installation
 
@@ -22,61 +23,52 @@ pnpm add shopify-webhook-sender
 
 ## Usage as a CLI
 
-After global installation (`pnpm add -g ...`), you can run the `send-shopify-webhook` command from any directory.
-
 ### 1. Setup
 
-Before running, make sure your directory contains:
-1.  A `reference.json` file (the webhook payload to use as a template).
-2.  A `.env` file with your Shopify credentials.
-
-```
-# .env
-SHOPIFY_ADMIN_TOKEN="shpat_..."
-SHOPIFY_WEBHOOK_SECRET="shpss_..."
-```
+Before running, create a `.env` file with your Shopify credentials (`SHOPIFY_ADMIN_TOKEN`, `SHOPIFY_WEBHOOK_SECRET`). An `.env.example` is provided.
 
 ### 2. Execution
 
+The tool fetches a reference payload from a URL and then sends a new webhook shaped like that reference.
+
 ```sh
+# It will automatically use a generic reference payload from GitHub
 send-shopify-webhook \
-  --order-id 1234567890 \
-  --shop your-shop.myshopify.com \
-  --url "https://your-receiver.com/webhook"
+  --order-id <ORDER_ID> \
+  --url "..." --shop "..."
+
+# Or, you can provide your own reference payload URL
+send-shopify-webhook \
+  --order-id <ORDER_ID> \
+  --reference-url <URL_TO_YOUR_JSON> \
+  --url "..." --shop "..."
 ```
 
 ### 3. CLI Options
 
 - `--order-id`: (Required) The numeric Shopify order ID.
 - `--url`: (Required) The webhook receiver endpoint.
-- `--shop`: (Required) The shop domain (e.g., `your-shop.myshopify.com`).
+- `--shop`: (Required) The shop domain (e.g., `your-shop.myself.com`).
+- `--reference-url`: (Optional) A URL to a custom JSON payload to use for shaping. Defaults to a generic payload on GitHub.
 - `--topic`: The webhook topic (default: `orders/fulfilled`).
 - `--api-version`: The Shopify API version (default: `2025-10`).
-- `--strict-schema`: Throws an error if any key in `reference.json` is missing from the fetched order.
+- `--strict-schema`: Throws an error if any key in the reference is missing from the fetched order.
 - `--dry-run`: Prints the payload and headers to the console without sending the request.
+
 
 ## Usage as a Library
 
-After local installation (`pnpm add ...`), you can import the functions into your project.
-
 ```typescript
 import { sendCraftedWebhook } from 'shopify-webhook-sender';
-import * as fs from 'fs/promises';
 
-async function myCustomLogic() {
-  const referencePayload = JSON.parse(await fs.readFile('path/to/reference.json', 'utf8'));
+// You must provide your own reference payload object when using the library
+const referencePayload = await fetch("https://.../your-reference.json").then(res => res.json());
 
-  const result = await sendCraftedWebhook({
-    orderId: '1234567890',
-    shop: process.env.SHOPIFY_SHOP_DOMAIN,
-    adminToken: process.env.SHOPIFY_ADMIN_TOKEN,
-    webhookSecret: process.env.SHOPIFY_WEBHOOK_SECRET,
-    url: 'https://your-receiver.com/webhook',
-    reference: referencePayload,
-  });
-
-  console.log(`Sending successful! EventId: ${result.eventId}`);
-}
+await sendCraftedWebhook({
+  orderId: '<NEW_ORDER_ID>',
+  reference: referencePayload,
+  // ... other required options like shop, adminToken, etc.
+});
 ```
 ## Local Development
 

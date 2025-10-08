@@ -1,7 +1,7 @@
 {
   "name": "shopify-webhook-sender",
   "version": "1.0.3",
-  "description": "Sends or resends Shopify webhooks using live or historical data, with precise payload shaping.",
+  "description": "Sends Shopify webhooks using live order data, shaped precisely against a remote reference payload.",
   "author": "Abdulla Haseeb",
   "license": "MIT",
   "repository": {

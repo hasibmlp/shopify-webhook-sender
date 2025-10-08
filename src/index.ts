@@ -10,8 +10,7 @@ import { projectToShape } from "./shape.js";
 import { sendWebhook } from "./sender.js";
 
 /**
- * The main programmatic entrypoint for the Shopify Webhook Replay tool.
- * This function orchestrates the entire process of fetching, shaping, and sending a webhook.
+ * Creates and sends a new webhook for a given order, shaped like a reference payload.
  */
 export async function sendCraftedWebhook(opts: {
   orderId: string | number;
