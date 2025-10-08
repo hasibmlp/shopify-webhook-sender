@@ -1,0 +1,36 @@
+{
+  "order_edit": {
+    "id": 0,
+    "app_id": null,
+    "created_at": "",
+    "committed_at": "",
+    "notify_customer": false,
+    "order_id": 0,
+    "staff_note": "",
+    "user_id": null,
+    "line_items": {
+      "additions": [
+        {
+          "id": 0,
+          "delta": 0
+        }
+      ],
+      "removals": [
+        {
+          "id": 0,
+          "delta": 0
+        }
+      ]
+    },
+    "discounts": {
+      "line_item": {
+        "additions": [],
+        "removals": []
+      }
+    },
+    "shipping_lines": {
+      "additions": [],
+      "removals": []
+    }
+  }
+}
