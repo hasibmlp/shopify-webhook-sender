@@ -8,7 +8,9 @@ import prompts from 'prompts';
 import minimist from "minimist";
 import chalk from 'chalk';
 import boxen from 'boxen';
-import { fetchOrder, fetchFulfillment } from "./shopify.js";
+import updateNotifier from 'update-notifier';
+import { createRequire } from 'module';
+import { fetchOrder, fetchFulfillment, fetchOrderEdit } from "./shopify.js";
 import { projectToShape } from "./shape.js";
 import { sendWebhook } from "./sender.js";
 import { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
@@ -16,6 +18,7 @@ import { logger } from './logger.js';
 
 const SUPPORTED_TOPICS = [
   { title: 'orders/fulfilled', value: 'orders/fulfilled' },
+  { title: 'orders/edited', value: 'orders/edited' },
   { title: 'fulfillments/create', value: 'fulfillments/create' },
 ];
 
@@ -234,7 +237,42 @@ async function runConfigureCommand() {
 
 
 async function main() {
+  const require = createRequire(import.meta.url);
+  const pkg = require('../package.json');
+  updateNotifier({ pkg }).notify();
+
   const argv = minimist(process.argv.slice(2));
+
+  if (argv.version || argv.v) {
+    console.log(pkg.version);
+    return;
+  }
+
+  if (argv.help || argv.h) {
+    console.log(`
+  Usage
+    $ send-shopify-webhook <options>
+
+  Options
+    --topic <string>          Webhook topic (e.g., "orders/fulfilled")
+    --order-id <number>       Order ID
+    --fulfillment-id <number> Fulfillment ID
+    --shop <string>           Shop domain (e.g., "your-shop.myshopify.com")
+    --url <string>            Destination URL
+    --reference-url <string>  Custom reference payload URL
+    --event-id <string>       Custom X-Shopify-Event-Id header
+    --api-version <string>    Shopify API version (default: "2025-10")
+    --strict-schema           Throw on schema mismatch
+    --dry-run                 Print payload without sending
+    --non-interactive         Disable all interactive prompts
+    --version, -v             Show version
+    --help, -h                Show this help message
+
+  Commands
+    configure                 Set up global credentials and defaults
+      `);
+    return;
+  }
 
   // Sanitize URL input at the source to handle shell escaping
   if (argv.url && typeof argv.url === 'string') {
@@ -319,8 +357,11 @@ async function main() {
         `--topic "${topic}"`,
       ];
 
-      if (!defaultsWereSaved) {
+      // Only add shop and url to the main command if they aren't using a configured default
+      if (!env.DEFAULT_SHOP || argv.shop) {
         commandParts.push(`--shop "${shop}"`);
+      }
+      if (!env.DEFAULT_URL || argv.url) {
         commandParts.push(`--url "${url}"`);
       }
 
@@ -328,47 +369,11 @@ async function main() {
       if (fulfillmentId) commandParts.push(`--fulfillment-id ${fulfillmentId}`);
       if (eventId) commandParts.push(`--event-id "${eventId}"`);
 
-      const optionalParts = [
-        'Optional flags:',
-      ];
-
-      if (defaultsWereSaved) {
-        optionalParts.push(`--shop "your-shop.myshopify.com"`);
-        optionalParts.push(`--url "https://your-receiver.com/webhook"`);
-      }
-
-      optionalParts.push(
-        '--event-id "your-custom-id"',
-        '--api-version "2025-07"',
-        '--strict-schema',
-        '--non-interactive'
-      );
-
-      const topicsList = [
-        'Available topics:',
-        ...SUPPORTED_TOPICS.map(topic => `  ${topic.value}`)
-      ];
-
       const command = commandParts.join(' \\\n  ');
 
       logger.plain(`\nTo run this command again non-interactively, use:\n`);
       logger.plain(chalk.cyan(`  ${command}`));
-
-      const infoLines = [
-        ...optionalParts,
-        '',
-        ...topicsList
-      ];
-
-      const infoBox = boxen(infoLines.join('\n'), {
-        title: 'Command Details',
-        titleAlignment: 'center',
-        padding: 1,
-        margin: { top: 1, bottom: 1, left: 2 },
-        borderColor: 'gray',
-        borderStyle: 'round'
-      });
-      logger.plain(chalk.gray(infoBox));
+      logger.plain(chalk.gray(`\nRun \`send-shopify-webhook --help\` for all available options.\n`));
     }
 
     logger.info(`Sending new '${topic}' webhook for ID ${entityId} ...`);
@@ -376,16 +381,18 @@ async function main() {
     const reference = await getReferencePayload(referenceUrl, topic);
     let liveData;
 
-    if (topic.startsWith('orders/')) {
+    if (topic === 'orders/edited') {
+      liveData = await fetchOrderEdit(orderId, shop, adminToken, apiVersion);
+    } else if (topic.startsWith('orders/')) {
       liveData = await fetchOrder(orderId, shop, adminToken, apiVersion);
     } else if (topic.startsWith('fulfillments/')) {
       liveData = await fetchFulfillment(orderId, fulfillmentId, shop, adminToken, apiVersion);
     } else {
-      throw new Error(`Unsupported topic: ${topic}. Please use a topic starting with 'orders/' or 'fulfillments/'.`);
+      throw new Error(`Unsupported topic: ${topic}. Please use one of the supported topics.`);
     }
 
     // GraphQL enrichment only for orders for now
-    if (topic.startsWith('orders/') && reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
+    if (topic.startsWith('orders/') && topic !== 'orders/edited' && reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
       const gqlBag = await fetchCurrentShippingPriceSet(orderId, shop, adminToken, apiVersion).catch(() => null);
       const fallback = liveData.total_shipping_price_set ?? null;
       liveData = { ...liveData, current_shipping_price_set: gqlBag ?? fallback ?? null };

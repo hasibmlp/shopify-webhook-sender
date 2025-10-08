@@ -7,7 +7,7 @@ A versatile CLI and library to send Shopify webhooks using live data, shaped pre
 - **High-Fidelity Sending**: Fetches live data from the Shopify Admin REST API.
 - **Precise Shaping**: Deeply projects live data onto the exact structure of a reference payload.
 - **Automatic & Flexible**: Works out-of-the-box using default reference payloads from GitHub, or you can provide your own.
-- **Multi-Topic Support**: Natively supports `orders/*` and `fulfillments/*` topics, with clear ID requirements for each.
+- **Multi-Topic Support**: Natively supports `orders/*`, `fulfillments/*`, and more topics, with clear ID requirements for each.
 - **GraphQL Enrichment**: Intelligently enriches order data by fetching `current_shipping_price_set` via the GraphQL API if needed.
 - **Secure Signing**: Correctly computes the `X-Shopify-Hmac-Sha256` signature for all webhooks.
 - **Professional CLI**: Features an interactive `configure` command and a smart credential system (local `.env` > global config).
@@ -52,6 +52,13 @@ send-shopify-webhook \
   --topic "fulfillments/create" \
   --order-id 1234567890 \
   --fulfillment-id 9876543210 \
+  --shop your-shop.myshopify.com \
+  --url "https://your-receiver.com/webhook"
+
+# Send an orders/edited webhook
+send-shopify-webhook \
+  --topic "orders/edited" \
+  --order-id 1234567890 \
   --shop your-shop.myshopify.com \
   --url "https://your-receiver.com/webhook"
 ```
