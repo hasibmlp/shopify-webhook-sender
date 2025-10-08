@@ -320,22 +320,31 @@ async function main() {
       logger.error(`Error: --order-id and --fulfillment-id are required for topic '${topic}' in non-interactive mode.`);
       process.exit(1);
     }
-  } else if (Object.keys(argv).length <= 2 && argv._.length === 0) { // Check for empty or just '_' and '$0'
-    const combinedArgs = await promptForMissingFlags(argv, env) as minimist.ParsedArgs;
-    // Re-assign vars and sanitize them
-    shop = (combinedArgs.shop || env.DEFAULT_SHOP || '').trim().replace(/["']/g, '');
-    url = (combinedArgs.url || env.DEFAULT_URL || '').trim().replace(/["']/g, '');
-    orderId = String(combinedArgs['order-id'] || '').trim();
-    fulfillmentId = String(combinedArgs['fulfillment-id'] || '').trim();
-    topic = combinedArgs.topic;
-    wasInteractive = true;
   } else {
-    // If flags are passed, still respect the defaults from env if a flag is omitted
-    const rawShop = shop ? String(shop) : (env.DEFAULT_SHOP || '');
-    shop = rawShop.trim().replace(/["']/g, '');
+    // A robust check for interactive mode:
+    // Are there any flags (other than '_')? Are there any positional args?
+    // If the answer to both is no, we go interactive.
+    const { _, ...flags } = argv;
+    const hasNoFlags = Object.keys(flags).length === 0;
+    const hasNoPositionalArgs = _.length === 0;
 
-    const rawUrl = url ? String(url) : (env.DEFAULT_URL || '');
-    url = rawUrl.trim().replace(/["']/g, '');
+    if (hasNoFlags && hasNoPositionalArgs) {
+      const combinedArgs = await promptForMissingFlags(argv, env) as minimist.ParsedArgs;
+      // Re-assign vars and sanitize them
+      shop = (combinedArgs.shop || env.DEFAULT_SHOP || '').trim().replace(/["']/g, '');
+      url = (combinedArgs.url || env.DEFAULT_URL || '').trim().replace(/["']/g, '');
+      orderId = String(combinedArgs['order-id'] || '').trim();
+      fulfillmentId = String(combinedArgs['fulfillment-id'] || '').trim();
+      topic = combinedArgs.topic;
+      wasInteractive = true;
+    } else {
+      // If flags are passed, still respect the defaults from env if a flag is omitted
+      const rawShop = shop ? String(shop) : (env.DEFAULT_SHOP || '');
+      shop = rawShop.trim().replace(/["']/g, '');
+
+      const rawUrl = url ? String(url) : (env.DEFAULT_URL || '');
+      url = rawUrl.trim().replace(/["']/g, '');
+    }
   }
 
   if (!url || !shop) {
