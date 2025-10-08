@@ -6,15 +6,15 @@ import path from 'node:path';
 import * as dotenv from 'dotenv';
 import readline from 'node:readline/promises';
 import minimist from "minimist";
-import { fetchOrder } from "./shopify.js";
+import { fetchOrder, fetchFulfillment } from "./shopify.js";
 import { projectToShape } from "./shape.js";
 import { sendWebhook } from "./sender.js";
 import { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
 
-const DEFAULT_REFERENCE_URL = "https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/main/generic-reference.json";
+const DEFAULT_REFERENCE_URL_TEMPLATE = "https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/main/references/{TOPIC}.json";
 
-async function getReferencePayload(url?: string) {
-  const finalUrl = url || DEFAULT_REFERENCE_URL;
+async function getReferencePayload(url: string | undefined, topic: string) {
+  const finalUrl = url || DEFAULT_REFERENCE_URL_TEMPLATE.replace("{TOPIC}", topic.replace("/", "-"));
   if (!url) {
     console.log(`--reference-url not provided. Using default: ${finalUrl}`);
   } else {
@@ -89,10 +89,11 @@ async function main() {
 
   // --- Flag Parsing ---
   const orderId = argv["order-id"];
+  const fulfillmentId = argv["fulfillment-id"];
   const url = argv["url"];
   const shop = argv["shop"];
   const referenceUrl = argv["reference-url"];
-  const topic = argv["topic"] || "orders/fulfilled";
+  const topic: string = argv["topic"] || "orders/fulfilled";
   const apiVersion = argv["api-version"] || "2025-10";
   const strictSchema = argv["strict-schema"] || false;
   const dryRun = argv["dry-run"] || false;
@@ -102,8 +103,18 @@ async function main() {
   const adminToken = env.SHOPIFY_ADMIN_TOKEN;
   const webhookSecret = env.SHOPIFY_WEBHOOK_SECRET;
 
-  if (!orderId || !url || !shop) {
-    console.error("Missing required flags: --order-id, --url, --shop");
+  if (!url || !shop) {
+    console.error("Missing required flags: --url, --shop");
+    process.exit(1);
+  }
+
+  if (topic.startsWith('orders/') && !orderId) {
+    console.error(`Error: --order-id is required for the topic '${topic}'`);
+    process.exit(1);
+  }
+
+  if (topic.startsWith('fulfillments/') && !fulfillmentId) {
+    console.error(`Error: --fulfillment-id is required for the topic '${topic}'`);
     process.exit(1);
   }
 
@@ -116,19 +127,28 @@ To set them up for global use, please run:
   }
 
   try {
-    console.log(`--- Emulate Mode: Sending new webhook for order ${orderId} ---`);
-    const reference = await getReferencePayload(referenceUrl);
+    const entityId = orderId || fulfillmentId;
+    console.log(`--- Emulate Mode: Sending new '${topic}' webhook for ID ${entityId} ---`);
+    
+    const reference = await getReferencePayload(referenceUrl, topic);
+    let liveData;
 
-    const rawOrder = await fetchOrder(orderId, shop, adminToken, apiVersion);
-
-    let order = rawOrder;
-    if (reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
-      const gqlBag = await fetchCurrentShippingPriceSet(orderId, shop, adminToken, apiVersion).catch(() => null);
-      const fallback = rawOrder.total_shipping_price_set ?? null;
-      order = { ...rawOrder, current_shipping_price_set: gqlBag ?? fallback ?? null };
+    if (topic.startsWith('orders/')) {
+      liveData = await fetchOrder(orderId, shop, adminToken, apiVersion);
+    } else if (topic.startsWith('fulfillments/')) {
+      liveData = await fetchFulfillment(fulfillmentId, shop, adminToken, apiVersion);
+    } else {
+      throw new Error(`Unsupported topic: ${topic}. Please use a topic starting with 'orders/' or 'fulfillments/'.`);
     }
 
-    const projected = projectToShape(reference, order, { strict: strictSchema });
+    // GraphQL enrichment only for orders for now
+    if (topic.startsWith('orders/') && reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
+      const gqlBag = await fetchCurrentShippingPriceSet(orderId, shop, adminToken, apiVersion).catch(() => null);
+      const fallback = liveData.total_shipping_price_set ?? null;
+      liveData = { ...liveData, current_shipping_price_set: gqlBag ?? fallback ?? null };
+    }
+
+    const projected = projectToShape(reference, liveData, { strict: strictSchema });
     const body = JSON.stringify(projected, null, 2);
 
     // --- Send Webhook ---
@@ -143,7 +163,7 @@ To set them up for global use, please run:
     });
 
     if (!dryRun) {
-      console.log(`Sent ${topic} for order ${orderId} to ${url} (status 200). EventId=${eventId}`);
+      console.log(`Sent ${topic} for ID ${entityId} to ${url} (status 200). EventId=${eventId}`);
     }
   } catch (error: any) {
     console.error("Error:", error.message);

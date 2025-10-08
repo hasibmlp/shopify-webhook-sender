@@ -42,6 +42,33 @@ An `.env.example` file is provided in this repository to show the required forma
 
 ### 2. Execution
 
-The tool fetches a reference payload from a URL and then sends a new webhook shaped like that reference.
+The tool fetches a reference payload from a URL and then sends a new webhook shaped like that reference. The `--topic` flag determines what kind of webhook is sent.
+
+```sh
+# Send an orders/fulfilled webhook (default topic)
+send-shopify-webhook \
+  --order-id <ORDER_ID> \
+  --url "..." --shop "..."
+
+# Send a fulfillments/create webhook
+send-shopify-webhook \
+  --topic "fulfillments/create" \
+  --fulfillment-id <FULFILLMENT_ID> \
+  --url "..." --shop "..."
+```
+
+### 3. CLI Options
+
+- `--url`, `--shop`: (Required)
+- `--topic`: (Optional) The webhook topic to send. Defaults to `orders/fulfilled`. Supported topics currently include `orders/*` and `fulfillments/*`.
+- `--order-id`: Required if the topic is `orders/*`.
+- `--fulfillment-id`: Required if the topic is `fulfillments/*`.
+- `--reference-url`: (Optional) A URL to a custom JSON payload to use for shaping. Defaults to a generic payload for the specified topic on GitHub.
+- `--api-version`: The Shopify API version (default: `2025-10`).
+- `--strict-schema`: Throws an error if any key in the reference is missing from the fetched data.
+- `--dry-run`: Prints the payload and headers to the console without sending the request.
+
+
+## Usage as a Library
 
 ```
