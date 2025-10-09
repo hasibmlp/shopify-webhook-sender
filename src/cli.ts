@@ -393,7 +393,33 @@ async function main() {
   try {
     const entityId = orderId || fulfillmentId;
 
+    if (wasInteractive) {
+      const commandParts = [
+        'send-shopify-webhook',
+        `--topic "${topic}"`,
+      ];
+
+      // Only add shop and url to the main command if they aren't using a configured default
+      if (!env.DEFAULT_SHOP || argv.shop) {
+        commandParts.push(`--shop "${shop}"`);
+      }
+      if (!env.DEFAULT_URL || argv.url) {
+        commandParts.push(`--url "${url}"`);
+      }
+
+      if (orderId) commandParts.push(`--order-id ${orderId}`);
+      if (fulfillmentId) commandParts.push(`--fulfillment-id ${fulfillmentId}`);
+      if (eventId) commandParts.push(`--event-id "${eventId}"`);
+
+      const command = commandParts.join(' \\\n  ');
+
+      logger.plain(`\nTo run this command again non-interactively, use:\n`);
+      logger.plain(chalk.cyan(`  ${command}`));
+      logger.plain(chalk.gray(`\nRun \`send-shopify-webhook --help\` for all available options.\n`));
+    }
+
     logger.info(`Fetching live data from Shopify...`);
+    
     const reference = await getReferencePayload(referenceUrl, topic);
     let liveData;
 
