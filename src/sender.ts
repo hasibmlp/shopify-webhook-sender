@@ -30,7 +30,8 @@ export async function sendWebhook(opts: {
   if (dryRun) {
     console.log("[DRY RUN] POST", url);
     console.log(headers);
-    console.log(JSON.stringify(JSON.parse(body), null, 2));
+    // Use process.stdout.write to avoid potential truncation by console.log
+    process.stdout.write(JSON.stringify(JSON.parse(body), null, 2) + '\n');
     return { headers, eventId, webhookId, status: 200, duration: 0 };
   }
 

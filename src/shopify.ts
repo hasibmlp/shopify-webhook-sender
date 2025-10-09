@@ -23,6 +23,7 @@ export async function fetchOrder(
   if (!data?.order) {
     throw new Error("No 'order' in Admin response");
   }
+
   return data.order; // use as the source of truth
 }
 
@@ -52,5 +53,6 @@ export async function fetchFulfillment(
   if (!data?.fulfillment) {
     throw new Error("No 'fulfillment' in Admin response");
   }
+
   return data.fulfillment;
 }

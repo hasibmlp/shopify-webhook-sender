@@ -1,10 +1,10 @@
-export { fetchOrder } from "./shopify.js";
+export { fetchOrder, fetchFulfillment } from "./shopify.js";
 export { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
 export { projectToShape } from "./shape.js";
 export { hmacBase64 } from "./signer.js";
 export { sendWebhook } from "./sender.js";
 
-import { fetchOrder } from "./shopify.js";
+import { fetchOrder, fetchFulfillment } from "./shopify.js";
 import { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
 import { projectToShape } from "./shape.js";
 import { sendWebhook } from "./sender.js";
@@ -13,7 +13,7 @@ import { sendWebhook } from "./sender.js";
  * Creates and sends a new webhook for a given order, shaped like a reference payload.
  */
 export async function sendCraftedWebhook(opts: {
-  orderId: string | number;
+  entityId: string | number | { orderId: string | number, fulfillmentId: string | number };
   shop: string;
   adminToken: string;
   webhookSecret: string;
@@ -23,9 +23,10 @@ export async function sendCraftedWebhook(opts: {
   apiVersion?: string;
   strict?: boolean;
   dryRun?: boolean;
+  eventId: string;
 }) {
   const {
-    orderId,
+    entityId,
     shop,
     adminToken,
     webhookSecret,
@@ -35,29 +36,36 @@ export async function sendCraftedWebhook(opts: {
     apiVersion = "2025-10",
     strict = false,
     dryRun = false,
+    eventId,
   } = opts;
 
-  // 1. Fetch the raw order from the REST API
-  const rawOrder = await fetchOrder(orderId, shop, adminToken, apiVersion);
+  let liveData;
+  if (topic.startsWith('orders/')) {
+    liveData = await fetchOrder(entityId as string | number, shop, adminToken, apiVersion);
+  } else if (topic.startsWith('fulfillments/')) {
+    const { orderId, fulfillmentId } = entityId as { orderId: string | number, fulfillmentId: string | number };
+    liveData = await fetchFulfillment(orderId, fulfillmentId, shop, adminToken, apiVersion);
+  } else {
+    throw new Error(`Unsupported topic: ${topic}. Please use a topic starting with 'orders/' or 'fulfillments/'.`);
+  }
 
-  // 2. Conditionally enrich the order with GraphQL data
-  let order = rawOrder;
-  if (reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
-    const gqlBag = await fetchCurrentShippingPriceSet(orderId, shop, adminToken, apiVersion).catch(() => null);
-    const fallback = rawOrder.total_shipping_price_set ?? null;
-    order = {
-      ...rawOrder,
+  // Conditionally enrich the order with GraphQL data
+  if (topic.startsWith('orders/') && reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
+    const gqlBag = await fetchCurrentShippingPriceSet(entityId as string | number, shop, adminToken, apiVersion).catch(() => null);
+    const fallback = liveData.total_shipping_price_set ?? null;
+    liveData = {
+      ...liveData,
       current_shipping_price_set: gqlBag ?? fallback ?? null,
     };
   }
 
-  // 3. Project the live order onto the reference shape
-  const projected = projectToShape(reference, order, { strict });
+  // Project the live order onto the reference shape
+  const projected = projectToShape(reference, liveData, { strict });
 
-  // 4. Stringify the body
+  // Stringify the body
   const body = JSON.stringify(projected, null, 2);
 
-  // 5. Send the webhook
+  // Send the webhook
   return sendWebhook({
     url,
     topic,
@@ -66,5 +74,6 @@ export async function sendCraftedWebhook(opts: {
     secret: webhookSecret,
     body,
     dryRun,
+    eventId,
   });
 }
