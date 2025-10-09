@@ -9,6 +9,7 @@ import minimist from "minimist";
 import chalk from 'chalk';
 import updateNotifier from 'update-notifier';
 import { createRequire } from 'module';
+import * as ini from 'ini';
 import { fetchOrder, fetchFulfillment } from "./shopify.js";
 import { projectToShape } from "./shape.js";
 import { sendWebhook } from "./sender.js";
@@ -142,49 +143,77 @@ async function promptForMissingFlags(argv: minimist.ParsedArgs, env: NodeJS.Proc
   return { ...argv, topic, ...answers };
 }
 
-function getShopifyEnv() {
-  // 1. Local .env file
-  const localPath = path.resolve(process.cwd(), '.env');
-  const localConfig = fs.existsSync(localPath) ? dotenv.parse(fs.readFileSync(localPath)) : {};
-
-  // 2. Global config file
+function getShopifyEnv(profile = 'default') {
   const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
-  const globalPath = path.join(globalDir, '.env');
-  const globalConfig = fs.existsSync(globalPath) ? dotenv.parse(fs.readFileSync(globalPath)) : {};
+  const credPath = path.join(globalDir, 'credentials');
+  const configPath = path.join(globalDir, 'config');
 
-  // 3. Environment variables (process.env)
-  // Merge them in order of priority: local > global > process.env
-  return { ...process.env, ...globalConfig, ...localConfig };
+  let credentials: Record<string, any> = {};
+  if (fs.existsSync(credPath)) {
+    const credFile = fs.readFileSync(credPath, 'utf-8');
+    credentials = ini.parse(credFile);
+  }
+
+  let config: Record<string, any> = {};
+  if (fs.existsSync(configPath)) {
+    const configFile = fs.readFileSync(configPath, 'utf-8');
+    config = ini.parse(configFile);
+  }
+
+  const profileCreds = (credentials[profile] || {}) as { admin_token?: string; webhook_secret?: string };
+  const profileConfig = (config[profile] || {}) as { shop?: string; url?: string };
+  const defaultConfig = (config['default'] || {}) as { shop?: string; url?: string };
+
+
+  return {
+    SHOPIFY_ADMIN_TOKEN: profileCreds.admin_token,
+    SHOPIFY_WEBHOOK_SECRET: profileCreds.webhook_secret,
+    DEFAULT_SHOP: profileConfig.shop || defaultConfig.shop,
+    DEFAULT_URL: profileConfig.url || defaultConfig.url,
+  };
 }
 
 async function runConfigureCommand() {
-  logger.info("Configuring Shopify Webhook Sender (global settings)");
-  
+  logger.info("Configuring a new profile");
+
   const onCancel = () => {
     logger.plain("\nCancelled.");
     process.exit(0);
   };
 
+  const { profileName } = await prompts({
+    type: 'text',
+    name: 'profileName',
+    message: 'Enter a profile name (e.g., "default", "client-a"):',
+    initial: 'default'
+  }, { onCancel });
+
+  if (!profileName) {
+    logger.error("Profile name is required. Configuration cancelled.");
+    return;
+  }
+
+
   const response = await prompts([
     {
       type: 'text',
       name: 'adminToken',
-      message: 'Please enter your SHOPIFY_ADMIN_TOKEN (shpat_...):'
+      message: 'Enter SHOPIFY_ADMIN_TOKEN (shpat_...):'
     },
     {
       type: 'password',
       name: 'webhookSecret',
-      message: 'Please enter your SHOPIFY_WEBHOOK_SECRET:'
+      message: 'Enter SHOPIFY_WEBHOOK_SECRET:'
     },
     {
       type: 'text',
       name: 'defaultShop',
-      message: 'Enter a default shop domain (optional):'
+      message: 'Enter a default shop domain for this profile (optional):'
     },
     {
       type: 'text',
       name: 'defaultUrl',
-      message: 'Enter a default destination URL (optional):'
+      message: 'Enter a default destination URL for this profile (optional):'
     }
   ], { onCancel });
 
@@ -196,41 +225,33 @@ async function runConfigureCommand() {
   }
 
   const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
-  const globalPath = path.join(globalDir, '.env');
+  const credPath = path.join(globalDir, 'credentials');
+  const configPath = path.join(globalDir, 'config');
 
-  const existingConfig = fs.existsSync(globalPath) ? dotenv.parse(fs.readFileSync(globalPath)) : {};
-  const newConfig = { ...existingConfig };
-
-  // Always update credentials
-  newConfig.SHOPIFY_ADMIN_TOKEN = adminToken;
-  newConfig.SHOPIFY_WEBHOOK_SECRET = webhookSecret;
-
-  // Handle optional defaults - allows unsetting with an empty string
-  if (defaultShop) {
-    newConfig.DEFAULT_SHOP = defaultShop;
-  } else if (defaultShop === '') {
-    delete newConfig.DEFAULT_SHOP;
+  if (!fs.existsSync(globalDir)) {
+    fs.mkdirSync(globalDir, { recursive: true });
   }
 
-  if (defaultUrl) {
-    newConfig.DEFAULT_URL = defaultUrl;
-  } else if (defaultUrl === '') {
-    delete newConfig.DEFAULT_URL;
+  // --- Update Credentials ---
+  const creds = fs.existsSync(credPath) ? ini.parse(fs.readFileSync(credPath, 'utf-8')) : {};
+  creds[profileName] = {
+    admin_token: adminToken,
+    webhook_secret: webhookSecret,
+  };
+  fs.writeFileSync(credPath, ini.stringify(creds));
+
+  // --- Update Config ---
+  const config = fs.existsSync(configPath) ? ini.parse(fs.readFileSync(configPath, 'utf-8')) : {};
+  const profileConfig = config[profileName] || {};
+  if (defaultShop) profileConfig.shop = defaultShop;
+  if (defaultUrl) profileConfig.url = defaultUrl;
+
+  if (Object.keys(profileConfig).length > 0) {
+    config[profileName] = profileConfig;
+    fs.writeFileSync(configPath, ini.stringify(config));
   }
 
-  const content = Object.entries(newConfig)
-    .map(([key, value]) => `${key}="${value}"`)
-    .join('\n') + '\n';
-
-  try {
-    if (!fs.existsSync(globalDir)) {
-      fs.mkdirSync(globalDir, { recursive: true });
-    }
-    fs.writeFileSync(globalPath, content);
-    logger.success(`\nGlobal configuration saved successfully to ${globalPath}`);
-  } catch (e: any) {
-    logger.error(`\nFailed to write configuration file: ${e.message}`);
-  }
+  logger.success(`\nProfile "${profileName}" saved successfully.`);
 }
 
 
@@ -301,13 +322,18 @@ async function main() {
   const dryRun = argv["dry-run"] || false;
   const eventId = argv["event-id"];
   const nonInteractive = argv["non-interactive"] || false;
+  const profile = argv["profile"] || 'default';
   let wasInteractive = false;
   let defaultsWereSaved = false;
 
   // --- Env & Basic Validation ---
-  const env = getShopifyEnv();
+  const env = getShopifyEnv(profile);
   const adminToken = env.SHOPIFY_ADMIN_TOKEN;
   const webhookSecret = env.SHOPIFY_WEBHOOK_SECRET;
+
+  if (profile !== 'default' || argv.profile) {
+    logger.info(`Using profile: ${profile}`);
+  }
 
   if (nonInteractive) {
     if (!url || !shop) {
@@ -327,6 +353,8 @@ async function main() {
     // Are there any flags (other than '_')? Are there any positional args?
     // If the answer to both is no, we go interactive.
     const { _, ...flags } = argv;
+    // We want to ignore the 'profile' flag when deciding to go interactive
+    delete (flags as any).profile;
     const hasNoFlags = Object.keys(flags).length === 0;
     const hasNoPositionalArgs = _.length === 0;
 

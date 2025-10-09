@@ -27,39 +27,36 @@ pnpm add shopify-webhook-sender
 
 ### 1. Setup
 
-The tool needs your Shopify Admin API Token and Webhook Secret. It looks for these credentials in the following order:
+The tool needs your Shopify Admin API Token and Webhook Secret. It now uses a profile system, similar to the AWS CLI, to manage credentials for multiple projects.
 
-1.  A local `.env` file in the directory you are running the command from.
-2.  A global configuration file located at `~/.config/shopify-webhook-sender/.env`.
-3.  Shell environment variables (`SHOPIFY_ADMIN_TOKEN`, `SHOPIFY_WEBHOOK_SECRET`).
+All configuration is stored in two files in `~/.config/shopify-webhook-sender/`:
+- `credentials`: Stores your `admin_token` and `webhook_secret` in named profiles.
+- `config`: Stores optional default values like `shop` and `url` for each profile.
 
-For the easiest setup, run the interactive configure command once:
+For the easiest setup, run the interactive configure command:
 ```sh
 send-shopify-webhook configure
 ```
-This will create the global configuration file for you. You can also set optional `DEFAULT_SHOP` and `DEFAULT_URL` values to make the CLI even faster to use.
+This will prompt you for a profile name (e.g., `default`, `client-a`), your credentials, and any optional defaults for that profile.
 
 ### 2. Execution
 
-The tool fetches a reference payload and sends a new webhook shaped like that reference. If default values are configured, you can omit the `--shop` and `--url` flags.
+You can now specify which profile to use with the `--profile` flag. If you omit it, the `default` profile will be used.
 
 ```sh
-# Send an orders/fulfilled webhook using configured defaults
-send-shopify-webhook --order-id 1234567890
-
-# Send a fulfillments/create webhook
+# Send a webhook using the 'client-a' profile
 send-shopify-webhook \
-  --topic "fulfillments/create" \
-  --order-id 1234567890 \
-  --fulfillment-id 9876543210 \
-  --shop your-shop.myshopify.com \
-  --url "https://your-receiver.com/webhook"
+  --profile client-a \
+  --order-id 1234567890
 
+# Send a webhook using the 'default' profile (no flag needed)
+send-shopify-webhook --order-id 1234567890
 ```
 
 ### 3. CLI Options
 
-- `--url`, `--shop`: (Required, unless a default is configured)
+- `--profile <string>`: (Optional) The configuration profile to use. Defaults to `default`.
+- `--url`, `--shop`: (Required, unless a default is configured for the profile)
 - `--topic`: (Optional) The webhook topic to send. Defaults to `orders/fulfilled`.
 - `--order-id`: Required for `orders/*` and `fulfillments/*` topics.
 - `--fulfillment-id`: Required for `fulfillments/*` topics.
