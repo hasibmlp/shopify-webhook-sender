@@ -30,15 +30,16 @@ export async function sendWebhook(opts: {
   if (dryRun) {
     console.log("[DRY RUN] POST", url);
     console.log(headers);
-    console.log(
-      body.length > 1500 ? body.slice(0, 1500) + " …(truncated)" : body
-    );
-    return { headers, eventId, webhookId, status: 200 };
+    console.log(JSON.stringify(JSON.parse(body), null, 2));
+    return { headers, eventId, webhookId, status: 200, duration: 0 };
   }
 
+  const startTime = Date.now();
   const res = await fetch(url, { method: "POST", headers, body });
+  const duration = Date.now() - startTime;
+
   if (!res.ok) {
     throw new Error(`POST failed: ${res.status} ${await res.text()}`);
   }
-  return { headers, eventId, webhookId, status: res.status };
+  return { headers, eventId, webhookId, status: res.status, duration };
 }

@@ -12,6 +12,11 @@ export async function fetchOrder(
     },
   });
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(
+        `Could not find Order #${orderId} on shop '${shop}'.\n\nThis could be because:\n  • The Shop Domain is incorrect.\n  • The Order ID does not exist on that shop.\n  • Your Admin API Token does not have 'read_orders' scope for this shop.`
+      );
+    }
     throw new Error(`Fetch order failed: ${res.status} ${await res.text()}`);
   }
   const data = await res.json();
@@ -36,6 +41,11 @@ export async function fetchFulfillment(
     },
   });
   if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(
+        `Could not find Fulfillment #${fulfillmentId} for Order #${orderId} on shop '${shop}'.\n\nThis could be because:\n  • The Shop Domain is incorrect.\n  • The Order ID or Fulfillment ID does not exist.\n  • Your Admin API Token does not have 'read_fulfillments' scope for this shop.`
+      );
+    }
     throw new Error(`Fetch fulfillment failed: ${res.status} ${await res.text()}`);
   }
   const data = await res.json();

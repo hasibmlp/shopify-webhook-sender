@@ -23,6 +23,8 @@ pnpm add -g shopify-webhook-sender
 pnpm add shopify-webhook-sender
 ```
 
+Note: The package name is `shopify-webhook-sender`, but the command you run is `send-shopify-webhook`.
+
 ## Usage as a CLI
 
 ### 1. Setup
