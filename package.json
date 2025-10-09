@@ -1,6 +1,6 @@
 {
   "name": "shopify-webhook-sender",
-  "version": "1.7.2",
+  "version": "1.7.3",
   "description": "Sends Shopify webhooks using live order data, shaped precisely against a remote reference payload.",
   "author": "Abdulla Haseeb",
   "license": "MIT",
@@ -22,6 +22,9 @@
   "bin": {
     "send-shopify-webhook": "dist/cli.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "send": "tsx src/cli.ts",
     "diff": "tsx src/diff.ts",
