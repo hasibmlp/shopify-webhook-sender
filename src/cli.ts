@@ -7,6 +7,7 @@ import * as dotenv from 'dotenv';
 import prompts from 'prompts';
 import minimist from "minimist";
 import chalk from 'chalk';
+import boxen from 'boxen';
 import updateNotifier from 'update-notifier';
 import { createRequire } from 'module';
 import * as ini from 'ini';
@@ -254,6 +255,45 @@ async function runConfigureCommand() {
   logger.success(`\nProfile "${profileName}" saved successfully.`);
 }
 
+async function listProfiles() {
+  const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
+  const credPath = path.join(globalDir, 'credentials');
+  const configPath = path.join(globalDir, 'config');
+
+  const credentials: Record<string, any> = fs.existsSync(credPath) ? ini.parse(fs.readFileSync(credPath, 'utf-8')) : {};
+  const config: Record<string, any> = fs.existsSync(configPath) ? ini.parse(fs.readFileSync(configPath, 'utf-8')) : {};
+
+  const allProfiles = new Set([...Object.keys(credentials), ...Object.keys(config)]);
+
+  if (allProfiles.size === 0) {
+    logger.info("No profiles found. Run `send-shopify-webhook configure` to create one.");
+    return;
+  }
+
+  logger.info("Available profiles:");
+  logger.break();
+
+  for (const profile of Array.from(allProfiles).sort()) {
+    const creds = credentials[profile] || {};
+    const conf = config[profile] || {};
+
+    const adminToken = creds.admin_token;
+    const webhookSecret = creds.webhook_secret;
+    const shop = conf.shop;
+    const url = conf.url;
+
+    const details = [
+      chalk.dim('Shop Domain:     ') + (shop || 'Not set'),
+      chalk.dim('Destination URL: ') + (url || 'Not set'),
+      chalk.dim('Admin Token:     ') + (adminToken || 'Not set'),
+      chalk.dim('Webhook Secret:  ') + (webhookSecret || 'Not set'),
+    ].join('\n');
+
+    const title = chalk.bold(profile) + (profile === 'default' ? chalk.dim(' (default)') : '');
+    logger.plain(boxen(details, { title, padding: 1, margin: { bottom: 1 }, borderStyle: 'round', borderColor: 'cyan' }));
+  }
+}
+
 
 async function main() {
   const require = createRequire(import.meta.url);
@@ -296,6 +336,7 @@ async function main() {
 
   Commands
     configure                 Set up global credentials and defaults
+    configure --list          List all configured profiles
       `);
     return;
   }
@@ -306,7 +347,16 @@ async function main() {
   }
 
   if (argv._[0] === 'configure') {
+    if (argv.list) {
+      await listProfiles();
+      return;
+    }
     await runConfigureCommand();
+    return;
+  }
+
+  if (argv._[0] === 'list-profiles') {
+    await listProfiles();
     return;
   }
 
