@@ -325,6 +325,8 @@ async function main() {
     --fulfillment-id <number> Fulfillment ID
     --shop <string>           Shop domain (e.g., "your-shop.myshopify.com")
     --url <string>            Destination URL
+    --token <string>          Shopify Admin API Token (overrides profiles)
+    --secret <string>         Shopify Webhook Secret (overrides profiles)
     --reference-url <string>  Custom reference payload URL
     --event-id <string>       Custom X-Shopify-Event-Id header
     --api-version <string>    Shopify API version (default: "2025-10")
@@ -378,8 +380,8 @@ async function main() {
 
   // --- Env & Basic Validation ---
   const env = getShopifyEnv(profile);
-  const adminToken = env.SHOPIFY_ADMIN_TOKEN;
-  const webhookSecret = env.SHOPIFY_WEBHOOK_SECRET;
+  const adminToken = argv.token || env.SHOPIFY_ADMIN_TOKEN;
+  const webhookSecret = argv.secret || env.SHOPIFY_WEBHOOK_SECRET;
 
   if (profile !== 'default' || argv.profile) {
     logger.info(`Using profile: ${profile}`);
@@ -436,7 +438,7 @@ async function main() {
   }
 
   if (!adminToken || !webhookSecret) {
-    logger.error(`Error: Shopify credentials not found.\n\nTo set them up for global use, please run:\n  send-shopify-webhook configure`);
+    logger.error(`Error: Shopify credentials not found.\n\nTo set them up, you can either:\n1. Pass them directly using --token and --secret flags.\n2. Run the configure command: send-shopify-webhook configure`);
     process.exit(1);
   }
 
