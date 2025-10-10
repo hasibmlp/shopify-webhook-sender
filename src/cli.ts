@@ -3,7 +3,6 @@ import "dotenv/config";
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
-import * as dotenv from 'dotenv';
 import prompts from 'prompts';
 import minimist from "minimist";
 import chalk from 'chalk';
@@ -22,7 +21,7 @@ const SUPPORTED_TOPICS = [
   { title: 'fulfillments/create', value: 'fulfillments/create' },
 ];
 
-async function promptAndSaveDefaults(missing: { shop: boolean, url: boolean }): Promise<{ shop?: string; url?: string; didSave: boolean }> {
+async function promptAndSaveDefaults(missing: { shop: boolean, url: boolean }, profile: string): Promise<{ shop?: string; url?: string; didSave: boolean }> {
   const onCancel = () => {
     logger.plain("\nCancelled.");
     process.exit(0);
@@ -43,37 +42,38 @@ async function promptAndSaveDefaults(missing: { shop: boolean, url: boolean }): 
     process.exit(1);
   }
 
-  // Sanitize the inputs before they are used or saved
   if (answers.shop) answers.shop = answers.shop.trim().replace(/["']/g, '');
   if (answers.url) answers.url = answers.url.trim().replace(/["']/g, '').replace(/\\/g, '');
+
+  const thingsToSave: string[] = [];
+  if (answers.shop) thingsToSave.push(`shop "${answers.shop}"`);
+  if (answers.url) thingsToSave.push(`URL "${answers.url}"`);
+  const thingsString = thingsToSave.join(' and ');
 
   const saveConfirmation = await prompts({
     type: 'confirm',
     name: 'save',
-    message: 'Save this shop and URL as defaults for future use?',
+    message: `Save ${thingsString} as default for the "${profile}" profile?`,
     initial: true
   }, { onCancel });
 
   if (saveConfirmation.save) {
     const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
-    const globalPath = path.join(globalDir, '.env');
-    const existingConfig = fs.existsSync(globalPath) ? dotenv.parse(fs.readFileSync(globalPath)) : {};
-
-    const newConfig = {
-      ...existingConfig,
-      ...(answers.shop && { DEFAULT_SHOP: answers.shop }),
-      ...(answers.url && { DEFAULT_URL: answers.url }),
-    };
-
-    const content = Object.entries(newConfig)
-      .map(([key, value]) => `${key}="${value}"`)
-      .join('\n') + '\n';
+    const configPath = path.join(globalDir, 'config');
 
     if (!fs.existsSync(globalDir)) {
       fs.mkdirSync(globalDir, { recursive: true });
     }
-    fs.writeFileSync(globalPath, content);
-    logger.info(`Defaults saved to ${globalPath}\n`);
+
+    const config = fs.existsSync(configPath) ? ini.parse(fs.readFileSync(configPath, 'utf-8')) : {};
+    const profileConfig = config[profile] || {};
+
+    if (answers.shop) profileConfig.shop = answers.shop;
+    if (answers.url) profileConfig.url = answers.url;
+
+    config[profile] = profileConfig;
+    fs.writeFileSync(configPath, ini.stringify(config));
+    logger.info(`Defaults for profile "${profile}" saved to ${configPath}\n`);
   }
 
   return { ...answers, didSave: saveConfirmation.save };
@@ -163,14 +163,12 @@ function getShopifyEnv(profile = 'default') {
 
   const profileCreds = (credentials[profile] || {}) as { admin_token?: string; webhook_secret?: string };
   const profileConfig = (config[profile] || {}) as { shop?: string; url?: string };
-  const defaultConfig = (config['default'] || {}) as { shop?: string; url?: string };
-
 
   return {
     SHOPIFY_ADMIN_TOKEN: profileCreds.admin_token,
     SHOPIFY_WEBHOOK_SECRET: profileCreds.webhook_secret,
-    DEFAULT_SHOP: profileConfig.shop || defaultConfig.shop,
-    DEFAULT_URL: profileConfig.url || defaultConfig.url,
+    DEFAULT_SHOP: profileConfig.shop,
+    DEFAULT_URL: profileConfig.url,
   };
 }
 
@@ -185,7 +183,7 @@ async function runConfigureCommand() {
   const { profileName } = await prompts({
     type: 'text',
     name: 'profileName',
-    message: 'Enter a profile name (e.g., "default", "client-a"):',
+    message: 'Enter a profile name (e.g., "my-shop"):',
     initial: 'default'
   }, { onCancel });
 
@@ -197,7 +195,7 @@ async function runConfigureCommand() {
 
   const response = await prompts([
     {
-      type: 'text',
+      type: 'password',
       name: 'adminToken',
       message: 'Enter SHOPIFY_ADMIN_TOKEN (shpat_...):'
     },
@@ -209,12 +207,12 @@ async function runConfigureCommand() {
     {
       type: 'text',
       name: 'defaultShop',
-      message: 'Enter a default shop domain for this profile (optional):'
+      message: 'Enter a default shop domain (press Enter to skip):'
     },
     {
       type: 'text',
       name: 'defaultUrl',
-      message: 'Enter a default destination URL for this profile (optional):'
+      message: 'Enter a default destination URL (press Enter to skip):'
     }
   ], { onCancel });
 
@@ -266,27 +264,28 @@ async function listProfiles() {
   const allProfiles = new Set([...Object.keys(credentials), ...Object.keys(config)]);
 
   if (allProfiles.size === 0) {
-    logger.info("No profiles found. Run `send-shopify-webhook configure` to create one.");
+    logger.info("No profiles found. Run `sws configure` to create one.");
     return;
   }
 
   logger.info("Available profiles:");
   logger.break();
 
+  const maskSecret = (secret?: string): string => {
+    if (!secret) return 'Not set';
+    if (secret.length <= 4) return '****';
+    return `${'*'.repeat(16)}${secret.slice(-4)}`;
+  }
+
   for (const profile of Array.from(allProfiles).sort()) {
     const creds = credentials[profile] || {};
     const conf = config[profile] || {};
 
-    const adminToken = creds.admin_token;
-    const webhookSecret = creds.webhook_secret;
-    const shop = conf.shop;
-    const url = conf.url;
-
     const details = [
-      chalk.dim('Shop Domain:     ') + (shop || 'Not set'),
-      chalk.dim('Destination URL: ') + (url || 'Not set'),
-      chalk.dim('Admin Token:     ') + (adminToken || 'Not set'),
-      chalk.dim('Webhook Secret:  ') + (webhookSecret || 'Not set'),
+      chalk.dim('Shop Domain:     ') + (conf.shop || 'Not set'),
+      chalk.dim('Destination URL: ') + (conf.url || 'Not set'),
+      chalk.dim('Admin Token:     ') + maskSecret(creds.admin_token),
+      chalk.dim('Webhook Secret:  ') + maskSecret(creds.webhook_secret),
     ].join('\n');
 
     const title = chalk.bold(profile) + (profile === 'default' ? chalk.dim(' (default)') : '');
@@ -294,30 +293,32 @@ async function listProfiles() {
   }
 }
 
-
-async function main() {
-  const require = createRequire(import.meta.url);
-  const pkg = require('../package.json');
-  updateNotifier({ pkg }).notify();
-
-  const rawArgv = minimist(process.argv.slice(2));
-
-  // If the first arg is 'send', slice it off to normalize behavior
-  if (rawArgv._[0] === 'send') {
-    rawArgv._.shift();
+function runListTopicsCommand() {
+  logger.plain("Supported webhook topics:");
+  for (const topic of SUPPORTED_TOPICS) {
+    logger.plain(`  - ${topic.value}`);
   }
-  const argv = rawArgv;
+}
 
+function getAvailableProfiles(): string[] {
+  const globalDir = path.join(os.homedir(), '.config', 'shopify-webhook-sender');
+  const credPath = path.join(globalDir, 'credentials');
+  const configPath = path.join(globalDir, 'config');
 
-  if (argv.version || argv.v) {
-    console.log(pkg.version);
-    return;
-  }
+  const credentials: Record<string, any> = fs.existsSync(credPath) ? ini.parse(fs.readFileSync(credPath, 'utf-8')) : {};
+  const config: Record<string, any> = fs.existsSync(configPath) ? ini.parse(fs.readFileSync(configPath, 'utf-8')) : {};
 
-  if (argv.help || argv.h) {
-    console.log(`
+  const allProfiles = new Set([...Object.keys(credentials), ...Object.keys(config)]);
+  return Array.from(allProfiles).sort();
+}
+
+function showHelp(command?: string) {
+  const commands: Record<string, string> = {
+    'send': `
+  Sends a webhook based on live Shopify data. This is the default command.
+
   Usage
-    $ send-shopify-webhook <options>
+    $ sws send [options]
 
   Options
     --topic <string>          Webhook topic (e.g., "orders/fulfilled")
@@ -333,33 +334,73 @@ async function main() {
     --strict-schema           Throw on schema mismatch
     --dry-run                 Print payload without sending
     --non-interactive         Disable all interactive prompts
-    --version, -v             Show version
-    --help, -h                Show this help message
+    `,
+    'configure': `
+  Sets up a new profile for credentials and defaults via an interactive prompt.
+
+  Usage
+    $ sws configure
+    `,
+    'list-profiles': `
+  Lists all configured profiles from your global settings.
+
+  Usage
+    $ sws list-profiles
+    `,
+    'list-topics': `
+  Lists all supported webhook topics.
+
+  Usage
+    $ sws list-topics
+    `,
+    'global': `
+  Usage
+    $ shopify-webhook-sender <command> [options]
+    $ sws <command> [options]
 
   Commands
-    configure                 Set up global credentials and defaults
-    configure --list          List all configured profiles
-      `);
-    return;
-  }
+    send                      Send a webhook (default command)
+    configure                 Set up a new profile for credentials and defaults
+    list-profiles             List all configured profiles
+    list-topics               List all supported webhook topics
 
-  // Sanitize URL input at the source to handle shell escaping
-  if (argv.url && typeof argv.url === 'string') {
-    argv.url = argv.url.replace(/\\/g, '');
-  }
+  Global Options
+    --version, -v             Show version
+    --help, -h                Show this help message for any command
+    `
+  };
 
-  if (argv._[0] === 'configure') {
-    if (argv.list) {
-      await listProfiles();
-      return;
-    }
-    await runConfigureCommand();
-    return;
-  }
+  const helpText = commands[command || 'global'] || commands['global'];
+  console.log(helpText);
+}
 
-  if (argv._[0] === 'list-profiles') {
-    await listProfiles();
-    return;
+
+async function runSendCommand(argv: minimist.ParsedArgs) {
+  const knownFlags = new Set([
+    '_',
+    'topic',
+    'order-id',
+    'fulfillment-id',
+    'shop',
+    'url',
+    'token',
+    'secret',
+    'reference-url',
+    'event-id',
+    'api-version',
+    'strict-schema',
+    'dry-run',
+    'non-interactive',
+    'profile',
+  ]);
+
+  const unknownFlags = Object.keys(argv).filter(flag => !knownFlags.has(flag));
+
+  if (unknownFlags.length > 0) {
+    logger.error(`Error: Unknown option(s): ${unknownFlags.map(f => `--${f}`).join(', ')}`);
+    logger.break();
+    showHelp();
+    process.exit(1);
   }
 
   // --- Flag Parsing ---
@@ -368,13 +409,33 @@ async function main() {
   let url = argv["url"];
   let shop = argv["shop"];
   const referenceUrl = argv["reference-url"];
-  let topic: string = argv["topic"] || "orders/fulfilled";
+  let topic: string = argv["topic"];
   const apiVersion = argv["api-version"] || "2025-10";
   const strictSchema = argv["strict-schema"] || false;
   const dryRun = argv["dry-run"] || false;
   const eventId = argv["event-id"];
   const nonInteractive = argv["non-interactive"] || false;
-  const profile = argv["profile"] || 'default';
+  
+  let profile = argv["profile"];
+  if (!profile && !nonInteractive && !argv.token && !argv.secret) {
+    const profiles = getAvailableProfiles();
+    if (profiles.length > 0 && !profiles.includes('default')) {
+      const onCancel = () => {
+        logger.plain("\nCancelled.");
+        process.exit(0);
+      };
+      const profileAnswer = await prompts({
+        type: 'select',
+        name: 'profile',
+        message: 'No default profile found. Please choose a profile to use:',
+        choices: profiles.map(p => ({ title: p, value: p })),
+      }, { onCancel });
+
+      profile = profileAnswer.profile;
+    }
+  }
+  profile = profile || 'default';
+  
   let wasInteractive = false;
   let defaultsWereSaved = false;
 
@@ -384,10 +445,14 @@ async function main() {
   const webhookSecret = argv.secret || env.SHOPIFY_WEBHOOK_SECRET;
 
   if (profile !== 'default' || argv.profile) {
-    logger.info(`Using profile: ${profile}`);
+    logger.step(`Using profile: ${chalk.bold(profile)}`);
   }
 
   if (nonInteractive) {
+    if (!topic) {
+      logger.error("Error: --topic is a required flag in non-interactive mode.");
+      process.exit(1);
+    }
     if (!url || !shop) {
       logger.error("Error: --url and --shop are required in non-interactive mode.");
       process.exit(1);
@@ -420,6 +485,19 @@ async function main() {
       topic = combinedArgs.topic;
       wasInteractive = true;
     } else {
+      // Partially interactive: some flags were passed, but we might still need to prompt for the topic.
+      if (!topic) {
+        const onCancel = () => { process.exit(0); };
+        const topicAnswer = await prompts({
+          type: 'select',
+          name: 'topic',
+          message: 'Select a webhook topic',
+          choices: SUPPORTED_TOPICS,
+        }, { onCancel });
+        topic = topicAnswer.topic;
+        if (!topic) process.exit(0); // User cancelled
+        wasInteractive = true;
+      }
       // If flags are passed, still respect the defaults from env if a flag is omitted
       const rawShop = shop ? String(shop) : (env.DEFAULT_SHOP || '');
       shop = rawShop.trim().replace(/["']/g, '');
@@ -429,8 +507,33 @@ async function main() {
     }
   }
 
+  // After determining the topic, we must ensure we have the required IDs, even in partial-interactive mode.
+  if (!nonInteractive) {
+    const onCancel = () => { logger.plain("\nCancelled."); process.exit(0); };
+    if (topic.startsWith('orders/') && !orderId) {
+      const { id } = await prompts({ type: 'text', name: 'id', message: 'Please provide the Order ID' }, { onCancel });
+      orderId = id;
+      if (!orderId) process.exit(1);
+      wasInteractive = true;
+    }
+    if (topic.startsWith('fulfillments/')) {
+      if (!orderId) {
+        const { id } = await prompts({ type: 'text', name: 'id', message: 'Please provide the Order ID' }, { onCancel });
+        orderId = id;
+        if (!orderId) process.exit(1);
+        wasInteractive = true;
+      }
+      if (!fulfillmentId) {
+        const { id } = await prompts({ type: 'text', name: 'id', message: 'Please provide the Fulfillment ID' }, { onCancel });
+        fulfillmentId = id;
+        if (!fulfillmentId) process.exit(1);
+        wasInteractive = true;
+      }
+    }
+  }
+
   if (!url || !shop) {
-    const newValues = await promptAndSaveDefaults({ shop: !shop, url: !url });
+    const newValues = await promptAndSaveDefaults({ shop: !shop, url: !url }, profile);
     if (!shop && newValues.shop) shop = newValues.shop;
     if (!url && newValues.url) url = newValues.url;
     wasInteractive = true;
@@ -438,7 +541,7 @@ async function main() {
   }
 
   if (!adminToken || !webhookSecret) {
-    logger.error(`Error: Shopify credentials not found.\n\nTo set them up, you can either:\n1. Pass them directly using --token and --secret flags.\n2. Run the configure command: send-shopify-webhook configure`);
+    logger.error(`Error: Shopify credentials not found.\n\nTo set them up, you can either:\n1. Pass them directly using --token and --secret flags.\n2. Run the configure command: sws configure`);
     process.exit(1);
   }
 
@@ -447,9 +550,14 @@ async function main() {
 
     if (wasInteractive) {
       const commandParts = [
-        'send-shopify-webhook',
-        `--topic "${topic}"`,
+        'sws send',
       ];
+
+      if (profile && profile !== 'default') {
+        commandParts.push(`--profile "${profile}"`);
+      }
+
+      commandParts.push(`--topic "${topic}"`);
 
       // Only add shop and url to the main command if they aren't using a configured default
       if (!env.DEFAULT_SHOP || argv.shop) {
@@ -467,7 +575,7 @@ async function main() {
 
       logger.plain(`\nTo run this command again non-interactively, use:\n`);
       logger.plain(chalk.cyan(`  ${command}`));
-      logger.plain(chalk.gray(`\nRun \`send-shopify-webhook --help\` for all available options.\n`));
+      logger.plain(chalk.gray(`\nRun \`sws send --help\` for all available options.\n`));
     }
 
     logger.info(`Fetching live data from Shopify...`);
@@ -534,6 +642,65 @@ async function main() {
     logger.break();
     logger.details('Details:', error.message);
     process.exit(1);
+  }
+}
+
+async function main() {
+  const require = createRequire(import.meta.url);
+  const pkg = require('../package.json');
+  updateNotifier({ pkg }).notify();
+
+  const rawArgv = minimist(process.argv.slice(2));
+  const command = rawArgv._[0];
+
+  if (rawArgv.version || rawArgv.v) {
+    console.log(pkg.version);
+    return;
+  }
+  
+  // Sanitize URL input at the source to handle shell escaping
+  if (rawArgv.url && typeof rawArgv.url === 'string') {
+    rawArgv.url = rawArgv.url.replace(/\\/g, '');
+  }
+
+  switch (command) {
+    case 'send':
+      rawArgv._.shift();
+      if (rawArgv.help || rawArgv.h) { showHelp('send'); return; }
+      await runSendCommand(rawArgv);
+      break;
+    case 'configure':
+      if (rawArgv.help || rawArgv.h) { showHelp('configure'); return; }
+      await runConfigureCommand();
+      break;
+    case 'list-profiles':
+      if (rawArgv.help || rawArgv.h) { showHelp('list-profiles'); return; }
+      await listProfiles();
+      break;
+    case 'list-topics':
+      if (rawArgv.help || rawArgv.h) { showHelp('list-topics'); return; }
+      runListTopicsCommand();
+      break;
+    default:
+      // If no command is specified, or an unknown command is given,
+      // check for legacy flags or show help.
+      if (rawArgv.help || rawArgv.h || (rawArgv._.length === 1 && rawArgv._[0] === '-')) {
+        showHelp();
+        return;
+      }
+
+      // If there are any flags that suggest a "send" operation, we can
+      // assume the user is using the old format and run the send command.
+      const legacySendFlags = ['topic', 'order-id', 'fulfillment-id', 'shop', 'url'];
+      const isLegacySend = Object.keys(rawArgv).some(key => legacySendFlags.includes(key));
+      
+      if (isLegacySend) {
+        if (rawArgv.help || rawArgv.h) { showHelp('send'); return; }
+        await runSendCommand(rawArgv);
+      } else {
+        showHelp();
+      }
+      break;
   }
 }
 

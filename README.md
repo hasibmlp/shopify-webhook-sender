@@ -1,84 +1,77 @@
 # Shopify Webhook Sender
 
-A versatile CLI and library to send Shopify webhooks using live data, shaped precisely against a remote reference payload.
+A developer-focused CLI to test and replay Shopify webhooks using live store data.
 
 ## Features
 
-- **High-Fidelity Sending**: Fetches live data from the Shopify Admin REST API.
-- **Precise Shaping**: Deeply projects live data onto the exact structure of a reference payload.
-- **Automatic & Flexible**: Works out-of-the-box using default reference payloads from GitHub, or you can provide your own.
-- **Multi-Topic Support**: Natively supports `orders/*` and `fulfillments/*` topics, with clear ID requirements for each.
-- **GraphQL Enrichment**: Intelligently enriches order data by fetching `current_shipping_price_set` via the GraphQL API if needed.
-- **Secure Signing**: Correctly computes the `X-Shopify-Hmac-Sha256` signature for all webhooks.
-- **Professional CLI**: Features an interactive `configure` command and a smart credential system (local `.env` > global config).
-- **Dual Use**: Can be used as a global CLI or imported as a library into other Node.js projects.
+- Fetch live Shopify data for various webhook topics.
+- Send webhooks that are correctly shaped and signed with HMAC signatures.
+- Manage multiple store credentials with a simple and secure profile system.
+- Interactive prompts guide you when you're missing information.
+- Use it as a global CLI or as a library in your own Node.js projects.
 
 ## Installation
 
 ```sh
-# Install globally to use the CLI anywhere
-pnpm add -g shopify-webhook-sender
-
-# Or, install locally in a project to use as a library
-pnpm add shopify-webhook-sender
+# Install globally to use the 'sws' command
+npm install -g shopify-webhook-sender
 ```
-
-Note: The package name is `shopify-webhook-sender`, but the command you run is `send-shopify-webhook`.
+Note: The command is `shopify-webhook-sender`. A shorter alias, `sws`, is also available and recommended for daily use.
 
 ## Usage as a CLI
 
-### 1. Setup
+### 1. First-Time Setup
 
-The tool needs your Shopify Admin API Token and Webhook Secret. It now uses a profile system, similar to the AWS CLI, to manage credentials for multiple projects.
-
-All configuration is stored in two files in `~/.config/shopify-webhook-sender/`:
-- `credentials`: Stores your `admin_token` and `webhook_secret` in named profiles.
-- `config`: Stores optional default values like `shop` and `url` for each profile.
-
-For the easiest setup, run the interactive configure command:
+The tool uses profiles to securely store your store credentials. To create your first profile, run:
 ```sh
-send-shopify-webhook configure
+sws configure
 ```
-This will prompt you for a profile name (e.g., `default`, `client-a`), your credentials, and any optional defaults for that profile.
+This will interactively prompt you for a profile name (e.g., `default`, `my-staging-shop`), your Admin API Token, and your Webhook Secret. You can also save a default shop domain and destination URL for each profile.
 
-### 2. Execution
+### 2. Sending a Webhook
 
-You can now specify which profile to use with the `--profile` flag. If you omit it, the `default` profile will be used.
+Use the `send` command to send a webhook.
 
 ```sh
-# Send a webhook using the 'client-a' profile
-send-shopify-webhook \
-  --profile client-a \
-  --order-id 1234567890
+# Run interactively, and the tool will ask for everything it needs
+sws send
 
-# Send a webhook using the 'default' profile (no flag needed)
-send-shopify-webhook --order-id 1234567890
+# Run non-interactively by providing all the details as flags
+sws send \
+  --profile my-staging-shop \
+  --topic "orders/fulfilled" \
+  --order-id 1234567890 \
+  --shop "my-staging-shop.myshopify.com" \
+  --url "https://my-app.com/webhooks/orders"
 ```
 
-### 3. CLI Options
+### 3. Commands and Options
 
-- `--profile <string>`: (Optional) The configuration profile to use. Defaults to `default`.
-- `--url`, `--shop`: (Required, unless a default is configured for the profile)
-- `--topic`: (Optional) The webhook topic to send. Defaults to `orders/fulfilled`.
-- `--order-id`: Required for `orders/*` and `fulfillments/*` topics.
-- `--fulfillment-id`: Required for `fulfillments/*` topics.
-- `--reference-url`: (Optional) A URL to a custom JSON payload for shaping. Defaults to a generic payload for the specified topic on GitHub.
-- `--event-id`: (Optional) A custom value for the `X-Shopify-Event-Id` header.
-- `--api-version`: The Shopify API version (default: `2025-10`).
-- `--strict-schema`: Throws an error if any key in the reference is missing from the fetched data.
-- `--dry-run`: Prints the payload and headers to the console without sending.
-- `--non-interactive`: (Optional) Disables all interactive prompts. If required flags are missing, the command will fail with an error. Useful for scripts and automation.
+- `sws --help`: Shows the main help message.
+- `sws send`: Sends a webhook.
+  - `--topic`: (Required) The topic to send.
+  - `--order-id`: (Required for `orders/*` and `fulfillments/*` topics).
+  - `--fulfillment-id`: (Required for `fulfillments/*` topics).
+  - `--shop`: (Required unless a default is saved in your profile).
+  - `--url`: (Required unless a default is saved in your profile).
+  - `--profile`: The profile to use. Defaults to `default`.
+  - `--token`, `--secret`: Override the profile's credentials for a single run.
+  - `--dry-run`: Print the webhook payload to the console instead of sending it.
+- `sws configure`: Interactively create or update a profile.
+- `sws list-profiles`: List all your saved profiles with masked credentials.
+- `sws list-topics`: List all webhook topics supported by the tool.
+
+> **Currently Supported Topics:** `orders/fulfilled`, `fulfillments/create`.
 
 ## Usage as a Library
 
-The package can be used programmatically in your own Node.js projects.
+> **Warning:** Using this package as a library is a secondary feature. The API is stable but may be subject to changes in future major versions.
 
 ```typescript
 import { sendCraftedWebhook } from 'shopify-webhook-sender';
 
 // You must provide your own reference payload object when using the library.
-// You can fetch the default one or use your own.
-const referencePayload = await fetch("https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/main/references/orders-fulfilled.json").then(res => res.json());
+const referencePayload = { "id": 123, "total_price": "100.00" }; // An example shape
 
 async function myCustomLogic() {
   const result = await sendCraftedWebhook({
@@ -100,5 +93,5 @@ If you wish to contribute to or modify this tool:
 
 1.  Clone the repository.
 2.  Install dependencies: `pnpm install`.
-3.  Run the CLI directly: `pnpm send ...` or `tsx src/cli.ts ...`.
-4.  A `diff` script is available for testing: `pnpm diff file1.json file2.json`.
+3.  Run the CLI directly for testing: `pnpm dev <command>`.
+4.  Build the project: `pnpm build`.

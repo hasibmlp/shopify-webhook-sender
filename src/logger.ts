@@ -1,16 +1,13 @@
 import chalk from 'chalk';
 
-const getTimestamp = () => {
-  const now = new Date();
-  const hours = String(now.getHours()).padStart(2, '0');
-  const minutes = String(now.getMinutes()).padStart(2, '0');
-  const seconds = String(now.getSeconds()).padStart(2, '0');
-  return `${hours}:${minutes}:${seconds}`;
-};
+const getTimestamp = () => chalk.dim(`[${new Date().toLocaleTimeString()}]`);
 
 export const logger = {
+  warn: (message: string) => {
+    console.log(chalk.yellow(`Warning: ${message}`));
+  },
   info: (message: string) => {
-    console.log(`${chalk.gray(getTimestamp() + ' │')} ${message}`);
+    console.log(`${getTimestamp()} │ ${message}`);
   },
   success: (message: string) => {
     console.log(`${chalk.gray(getTimestamp() + ' │')} ${chalk.green(message)}`);
@@ -22,9 +19,13 @@ export const logger = {
     console.log(message);
   },
   break: () => {
-    console.log(`${chalk.gray('         │')}`);
+    console.log(chalk.gray(`         │`));
   },
-  details: (key: string, value: string) => {
-    console.log(`${chalk.gray('         │   ')}${chalk.dim(key.padEnd(12, ' '))} ${value}`);
+  step: (message: string) => {
+    console.log(chalk.dim(message));
+  },
+  details: (label: string, value: string) => {
+    const formattedLabel = chalk.dim(label.padEnd(12));
+    console.log(`         │   ${formattedLabel}${value}`);
   }
 };

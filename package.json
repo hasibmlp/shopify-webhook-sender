@@ -1,7 +1,7 @@
 {
   "name": "shopify-webhook-sender",
-  "version": "1.8.2",
-  "description": "Sends Shopify webhooks using live order data, shaped precisely against a remote reference payload.",
+  "version": "1.8.3",
+  "description": "A CLI to send Shopify webhooks using live data, shaped against a reference payload.",
   "author": "Abdulla Haseeb",
   "license": "MIT",
   "repository": {
@@ -20,13 +20,16 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
-    "send-shopify-webhook": "dist/cli.js"
+    "shopify-webhook-sender": "bin/sws.js",
+    "sws": "bin/sws.js",
+    "send-shopify-webhook": "bin/send-shopify-webhook.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "bin"
   ],
   "scripts": {
-    "send": "tsx src/cli.ts",
+    "dev": "tsx src/cli.ts",
     "diff": "tsx src/diff.ts",
     "build": "tsc"
   },
