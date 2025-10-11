@@ -81,7 +81,7 @@ async function promptAndSaveDefaults(missing: { shop: boolean, url: boolean }, p
   return { ...answers, didSave: saveConfirmation.save };
 }
 
-const DEFAULT_REFERENCE_URL_TEMPLATE = "https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/main/references/{TOPIC}.json";
+const DEFAULT_REFERENCE_URL_TEMPLATE = "https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/v2-beta/references/{TOPIC}.json";
 
 async function getReferencePayload(url: string | undefined, topic: string, local: boolean = false) {
   if (local) {
