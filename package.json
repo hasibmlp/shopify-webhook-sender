@@ -1,6 +1,6 @@
 {
   "name": "shopify-webhook-sender",
-  "version": "2.0.0-beta.2",
+  "version": "2.0.0-beta.3",
   "description": "A CLI to send Shopify webhooks using live data, shaped against a reference payload.",
   "author": "Abdulla Haseeb",
   "license": "MIT",
@@ -35,7 +35,9 @@
   "scripts": {
     "dev": "tsx src/cli.ts",
     "diff": "tsx src/diff.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "prepublishOnly": "pnpm build",
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
   "devDependencies": {
     "@types/deep-diff": "^1.0.5",
