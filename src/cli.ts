@@ -10,14 +10,16 @@ import boxen from 'boxen';
 import updateNotifier from 'update-notifier';
 import { createRequire } from 'module';
 import * as ini from 'ini';
-import { fetchOrder, fetchFulfillment } from "./shopify.js";
-import { projectToShape } from "./shape.js";
-import { sendWebhook } from "./sender.js";
-import { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
+import { fetchOrder, fetchFulfillment } from "./core/shopify.js";
+import { projectToShape } from "./core/shape.js";
+import { sendWebhook } from "./core/sender.js";
+import { fetchCurrentShippingPriceSet, fetchOrderEditData } from "./core/shopify-gql.js";
 import { logger } from './logger.js';
+import { transformAgreementsToChanges } from "./core/order-edit-transformer.js";
 
 const SUPPORTED_TOPICS = [
   { title: 'orders/fulfilled', value: 'orders/fulfilled' },
+  { title: 'orders/edited', value: 'orders/edited' },
   { title: 'fulfillments/create', value: 'fulfillments/create' },
 ];
 
@@ -81,7 +83,16 @@ async function promptAndSaveDefaults(missing: { shop: boolean, url: boolean }, p
 
 const DEFAULT_REFERENCE_URL_TEMPLATE = "https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/main/references/{TOPIC}.json";
 
-async function getReferencePayload(url: string | undefined, topic: string) {
+async function getReferencePayload(url: string | undefined, topic: string, local: boolean = false) {
+  if (local) {
+    const localPath = path.join(process.cwd(), 'references', `${topic.replace('/', '-')}.json`);
+    try {
+      const fileContent = fs.readFileSync(localPath, 'utf-8');
+      return JSON.parse(fileContent);
+    } catch (e: any) {
+      throw new Error(`Failed to read or parse local reference payload from ${localPath}. Error: ${e.message}`);
+    }
+  }
   const finalUrl = url || DEFAULT_REFERENCE_URL_TEMPLATE.replace("{TOPIC}", topic.replace("/", "-"));
 
   try {
@@ -392,6 +403,7 @@ async function runSendCommand(argv: minimist.ParsedArgs) {
     'dry-run',
     'non-interactive',
     'profile',
+    'local-reference', // Add the new flag
   ]);
 
   const unknownFlags = Object.keys(argv).filter(flag => !knownFlags.has(flag));
@@ -415,6 +427,7 @@ async function runSendCommand(argv: minimist.ParsedArgs) {
   const dryRun = argv["dry-run"] || false;
   const eventId = argv["event-id"];
   const nonInteractive = argv["non-interactive"] || false;
+  const localReference = argv["local-reference"] || false;
   
   let profile = argv["profile"];
   if (!profile && !nonInteractive && !argv.token && !argv.secret) {
@@ -578,17 +591,47 @@ async function runSendCommand(argv: minimist.ParsedArgs) {
       logger.plain(chalk.gray(`\nRun \`sws send --help\` for all available options.\n`));
     }
 
+    if (topic === 'orders/edited') {
+      logger.warn(
+        "Notice: The 'orders/edited' payload is a reconstruction. Some fields (like discounts) may be omitted or differ slightly from a live Shopify webhook.",
+      )
+    }
+
     logger.info(`Fetching live data from Shopify...`);
-    
-    const reference = await getReferencePayload(referenceUrl, topic);
+
+    const reference = await getReferencePayload(
+      referenceUrl,
+      topic,
+      localReference
+    );
     let liveData;
 
-    if (topic.startsWith('orders/')) {
+    if (topic.startsWith("orders/")) {
       liveData = await fetchOrder(orderId, shop, adminToken, apiVersion);
-    } else if (topic.startsWith('fulfillments/')) {
-      liveData = await fetchFulfillment(orderId, fulfillmentId, shop, adminToken, apiVersion);
+      if (topic === "orders/edited") {
+        const agreementsData = await fetchOrderEditData(orderId as string, shop, adminToken, apiVersion);
+
+        const reconstructedEdit = transformAgreementsToChanges(agreementsData, liveData);
+
+        if (!reconstructedEdit) {
+          logger.step("No order edits found for this order. No webhook will be sent.");
+          return;
+        }
+        
+        liveData = { ...liveData, order_edit: reconstructedEdit };
+      }
+    } else if (topic.startsWith("fulfillments/")) {
+      liveData = await fetchFulfillment(
+        orderId,
+        fulfillmentId,
+        shop,
+        adminToken,
+        apiVersion
+      );
     } else {
-      throw new Error(`Unsupported topic: ${topic}. Please use one of the supported topics.`);
+      throw new Error(
+        `Unsupported topic: ${topic}. Please use one of the supported topics.`
+      );
     }
 
     // GraphQL enrichment only for orders for now

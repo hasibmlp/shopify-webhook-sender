@@ -1,0 +1,50 @@
+{
+  "order_edit": {
+    "id": null,
+    "app_id": null,
+    "created_at": null,
+    "committed_at": "",
+    "notify_customer": false,
+    "order_id": null,
+    "staff_note": "",
+    "user_id": null,
+    "line_items": {
+      "additions": [
+        {
+          "id": null,
+          "delta": null
+        }
+      ],
+      "removals": [
+        {
+          "id": null,
+          "delta": null
+        }
+      ]
+    },
+    "discounts": {
+      "line_item": {
+        "additions": [
+          {
+            "fixed_amount_set": null,
+            "line_item_id": null,
+            "percent_amount": null,
+            "description": ""
+          }
+        ],
+        "removals": [
+          {
+            "fixed_amount_set": null,
+            "line_item_id": null,
+            "percent_amount": null,
+            "description": ""
+          }
+        ]
+      }
+    },
+    "shipping_lines": {
+      "additions": [],
+      "removals": []
+    }
+  }
+}

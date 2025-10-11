@@ -1,6 +1,6 @@
 {
   "name": "shopify-webhook-sender",
-  "version": "1.8.3",
+  "version": "2.0.0",
   "description": "A CLI to send Shopify webhooks using live data, shaped against a reference payload.",
   "author": "Abdulla Haseeb",
   "license": "MIT",
@@ -17,8 +17,12 @@
     "typescript"
   ],
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
   "bin": {
     "shopify-webhook-sender": "bin/sws.js",
     "sws": "bin/sws.js",

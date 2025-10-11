@@ -1,17 +1,21 @@
 import crypto from "node:crypto";
 import { hmacBase64 } from "./signer.js";
 
-export async function sendWebhook(opts: {
+export type SendWebhookParams = {
   url: string;
   topic: string;
   shop: string;
   apiVersion: string;
   secret: string;
-  body: string; // projected JSON string
-  dryRun?: boolean;
+  body: string;
+  dryRun: boolean;
   eventId?: string;
-}) {
-  const { url, topic, shop, apiVersion, secret, body, dryRun, eventId: customEventId } = opts;
+};
+
+export async function sendWebhook(
+  params: SendWebhookParams
+): Promise<{ eventId: string, status: number, duration: number }> {
+  const { url, topic, shop, apiVersion, secret, body, dryRun, eventId: customEventId } = params;
 
   const hmac = hmacBase64(secret, body);
   const eventId = customEventId || crypto.randomUUID();
@@ -32,7 +36,7 @@ export async function sendWebhook(opts: {
     console.log(headers);
     // Use process.stdout.write to avoid potential truncation by console.log
     process.stdout.write(JSON.stringify(JSON.parse(body), null, 2) + '\n');
-    return { headers, eventId, webhookId, status: 200, duration: 0 };
+    return { eventId, status: 200, duration: 0 };
   }
 
   const startTime = Date.now();
@@ -42,5 +46,5 @@ export async function sendWebhook(opts: {
   if (!res.ok) {
     throw new Error(`POST failed: ${res.status} ${await res.text()}`);
   }
-  return { headers, eventId, webhookId, status: res.status, duration };
+  return { eventId, status: res.status, duration };
 }

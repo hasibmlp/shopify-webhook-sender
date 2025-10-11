@@ -1,72 +1,91 @@
-export { fetchOrder, fetchFulfillment } from "./shopify.js";
-export { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
-export { projectToShape } from "./shape.js";
-export { hmacBase64 } from "./signer.js";
-export { sendWebhook } from "./sender.js";
+import { fetchOrder, fetchFulfillment } from "./core/shopify.js";
+import { projectToShape } from "./core/shape.js";
+import {
+  sendWebhook as sendCraftedWebhook,
+  SendWebhookParams,
+} from "./core/sender.js";
+import { fetchCurrentShippingPriceSet, fetchOrderEditData } from "./core/shopify-gql.js";
+import { transformAgreementsToChanges } from "./core/order-edit-transformer.js";
 
-import { fetchOrder, fetchFulfillment } from "./shopify.js";
-import { fetchCurrentShippingPriceSet } from "./shopify-gql.js";
-import { projectToShape } from "./shape.js";
-import { sendWebhook } from "./sender.js";
+const DEFAULT_REFERENCE_URL_TEMPLATE = "https://raw.githubusercontent.com/hasibmlp/shopify-webhook-sender/main/references/{TOPIC}.json";
 
-/**
- * Creates and sends a new webhook for a given order, shaped like a reference payload.
- */
-export async function sendCraftedWebhook(opts: {
-  entityId: string | number | { orderId: string | number, fulfillmentId: string | number };
+async function getReferencePayload(url: string | undefined, topic: string) {
+  const finalUrl = url || DEFAULT_REFERENCE_URL_TEMPLATE.replace("{TOPIC}", topic.replace("/", "-"));
+  try {
+    const res = await fetch(finalUrl);
+    if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+    return await res.json();
+  } catch (e: any) {
+    throw new Error(`Failed to fetch or parse reference payload from ${finalUrl}. Error: ${e.message}`);
+  }
+}
+
+export type ShopifyWebhookSenderParams = {
+  topic: string;
   shop: string;
   adminToken: string;
   webhookSecret: string;
   url: string;
-  reference: any;
-  topic?: string;
   apiVersion?: string;
-  strict?: boolean;
+  orderId?: string;
+  fulfillmentId?: string;
+  referenceUrl?: string;
+  eventId?: string;
   dryRun?: boolean;
-  eventId: string;
-}) {
+  strictSchema?: boolean;
+};
+
+export async function sendWebhook(params: ShopifyWebhookSenderParams) {
   const {
-    entityId,
+    topic,
     shop,
     adminToken,
     webhookSecret,
     url,
-    reference,
-    topic = "orders/fulfilled",
     apiVersion = "2025-10",
-    strict = false,
-    dryRun = false,
+    orderId,
+    fulfillmentId,
+    referenceUrl,
     eventId,
-  } = opts;
+    dryRun = false,
+    strictSchema = false,
+  } = params;
 
-  let liveData;
+  const reference = await getReferencePayload(referenceUrl, topic);
+  let liveData: any;
+
   if (topic.startsWith('orders/')) {
-    liveData = await fetchOrder(entityId as string | number, shop, adminToken, apiVersion);
+    if (!orderId) throw new Error("`orderId` is required for topics starting with 'orders/'");
+    liveData = await fetchOrder(orderId, shop, adminToken, apiVersion);
+    if (topic === 'orders/edited') {
+      const agreementsData = await fetchOrderEditData(orderId, shop, adminToken, apiVersion);
+      const reconstructedEdit = transformAgreementsToChanges(agreementsData, liveData);
+
+      if (!reconstructedEdit) {
+        // Return a specific result indicating no action was taken
+        return { success: true, reason: "NO_EDITS_FOUND", message: "No order edits found; webhook not sent." };
+      }
+
+      liveData = { ...liveData, order_edit: reconstructedEdit };
+    }
   } else if (topic.startsWith('fulfillments/')) {
-    const { orderId, fulfillmentId } = entityId as { orderId: string | number, fulfillmentId: string | number };
+    if (!orderId || !fulfillmentId) throw new Error("`orderId` and `fulfillmentId` are required for topics starting with 'fulfillments/'");
     liveData = await fetchFulfillment(orderId, fulfillmentId, shop, adminToken, apiVersion);
   } else {
-    throw new Error(`Unsupported topic: ${topic}. Please use a topic starting with 'orders/' or 'fulfillments/'.`);
+    throw new Error(`Unsupported topic: ${topic}.`);
   }
 
-  // Conditionally enrich the order with GraphQL data
   if (topic.startsWith('orders/') && reference && typeof reference === "object" && "current_shipping_price_set" in reference) {
-    const gqlBag = await fetchCurrentShippingPriceSet(entityId as string | number, shop, adminToken, apiVersion).catch(() => null);
-    const fallback = liveData.total_shipping_price_set ?? null;
-    liveData = {
-      ...liveData,
-      current_shipping_price_set: gqlBag ?? fallback ?? null,
-    };
+    if (!orderId) throw new Error("`orderId` is required for GraphQL enrichment");
+    const gqlBag = await fetchCurrentShippingPriceSet(orderId, shop, adminToken, apiVersion).catch(() => null);
+    const fallback = (liveData as any).total_shipping_price_set ?? null;
+    liveData = { ...liveData, current_shipping_price_set: gqlBag ?? fallback ?? null };
   }
 
-  // Project the live order onto the reference shape
-  const projected = projectToShape(reference, liveData, { strict });
-
-  // Stringify the body
+  const projected = projectToShape(reference, liveData, { strict: strictSchema });
   const body = JSON.stringify(projected, null, 2);
 
-  // Send the webhook
-  return sendWebhook({
+  return await sendCraftedWebhook({
     url,
     topic,
     shop,
@@ -77,3 +96,7 @@ export async function sendCraftedWebhook(opts: {
     eventId,
   });
 }
+
+// Re-export for advanced use
+export { sendCraftedWebhook };
+export type { SendWebhookParams };
