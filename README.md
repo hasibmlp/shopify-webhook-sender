@@ -61,29 +61,35 @@ sws send \
 - `sws list-profiles`: List all your saved profiles with masked credentials.
 - `sws list-topics`: List all webhook topics supported by the tool.
 
-> **Currently Supported Topics:** `orders/fulfilled`, `fulfillments/create`.
+> **Currently Supported Topics:** `orders/fulfilled`, `orders/edited`, `fulfillments/create`.
 
 ## Usage as a Library
 
 > **Warning:** Using this package as a library is a secondary feature. The API is stable but may be subject to changes in future major versions.
 
 ```typescript
-import { sendCraftedWebhook } from 'shopify-webhook-sender';
+import { sendWebhook } from 'shopify-webhook-sender';
 
-// You must provide your own reference payload object when using the library.
-const referencePayload = { "id": 123, "total_price": "100.00" }; // An example shape
+async function sendMyWebhook() {
+  try {
+    const result = await sendWebhook({
+      topic: 'orders/fulfilled',
+      orderId: '1234567890',
+      shop: process.env.SHOPIFY_SHOP!,
+      adminToken: process.env.SHOPIFY_ADMIN_TOKEN!,
+      webhookSecret: process.env.SHOPIFY_WEBHOOK_SECRET!,
+      url: 'https://your-receiver.com/webhook',
+    });
 
-async function myCustomLogic() {
-  const result = await sendCraftedWebhook({
-    orderId: '1234567890',
-    shop: process.env.SHOPIFY_SHOP,
-    adminToken: process.env.SHOPIFY_ADMIN_TOKEN,
-    webhookSecret: process.env.SHOPIFY_WEBHOOK_SECRET,
-    url: 'https://your-receiver.com/webhook',
-    reference: referencePayload,
-  });
-
-  console.log(`✅ Sending successful! EventId: ${result.eventId}`);
+    if (result.success) {
+      console.log(`✅ Sending successful! EventId: ${result.eventId}`);
+    } else {
+      // Handle cases like "NO_EDITS_FOUND" for orders/edited
+      console.warn(`Webhook not sent: ${result.message}`);
+    }
+  } catch (error) {
+    console.error('❌ Error sending webhook:', error);
+  }
 }
 ```
 
