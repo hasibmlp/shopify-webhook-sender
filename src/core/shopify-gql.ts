@@ -59,7 +59,7 @@ export async function fetchOrderEditData(orderId: string, shop: string, token: s
   const query = `
     query OrderEditData($id: ID!) {
       order(id: $id) {
-        agreements(first: 40) {
+        agreements(first: 200) {
           edges {
             node {
               id
